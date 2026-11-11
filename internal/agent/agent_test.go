@@ -54,7 +54,7 @@ func TestRegistryAll(t *testing.T) {
 			t.Fatalf("listed adapter %q cannot be looked up: %v", name, err)
 		}
 	}
-	if want := []string{"claude"}; !slices.Equal(names, want) {
+	if want := []string{"claude", "pi"}; !slices.Equal(names, want) {
 		t.Fatalf("registry order = %q; want %q", names, want)
 	}
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"github.com/linhtruong/agent-profiles/internal/agent/claude"
+	"github.com/linhtruong/agent-profiles/internal/agent/pi"
 )
 
 type Agent interface {
@@ -12,7 +13,7 @@ type Agent interface {
 	InitTemplate() []byte
 }
 
-func All() []Agent { return []Agent{claude.Adapter{}} }
+func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
 func Get(name string) (Agent, error) {
 	for _, a := range All() {
 		if a.Name() == name {
