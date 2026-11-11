@@ -35,10 +35,40 @@ func Init(name string) (string, error) {
 	if name != "bash" && name != "zsh" {
 		return "", fmt.Errorf("unsupported shell %q", name)
 	}
-	return `ap() {
+	shim := `ap() {
   local _ap_code
   _ap_code=$(command agent-profiles "$@" --emit-shell) || return $?
   eval "$_ap_code"
 }
-`, nil
+_ap_auto() {
+  local _ap_status=$? _ap_code
+  if _ap_code=$(command agent-profiles auto --emit-shell); then
+    eval "$_ap_code"
+  fi
+  return "$_ap_status"
+}
+`
+	if name == "zsh" {
+		shim += `typeset -ga chpwd_functions
+if (( ! ${chpwd_functions[(Ie)_ap_auto]} )); then
+  chpwd_functions+=(_ap_auto)
+fi
+`
+	} else {
+		shim += `if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a'* ]]; then
+  _ap_found=0
+  for _ap_item in "${PROMPT_COMMAND[@]}"; do
+    [[ $_ap_item == _ap_auto ]] && _ap_found=1
+  done
+  if [[ $_ap_found == 0 ]]; then PROMPT_COMMAND=(_ap_auto "${PROMPT_COMMAND[@]}"); fi
+  unset _ap_found _ap_item
+else
+  case "${PROMPT_COMMAND-}" in
+    _ap_auto|_ap_auto\;*) ;;
+    *) PROMPT_COMMAND="_ap_auto${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
+  esac
+fi
+`
+	}
+	return shim + "_ap_auto\n", nil
 }

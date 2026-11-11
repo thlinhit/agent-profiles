@@ -6,8 +6,10 @@ import (
 	"github.com/linhtruong/agent-profiles/internal/dotfile"
 	"github.com/linhtruong/agent-profiles/internal/profile"
 	"github.com/linhtruong/agent-profiles/internal/shell"
+	"github.com/linhtruong/agent-profiles/internal/trust"
 	"io"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -36,6 +38,54 @@ func run(args []string, out, diagnostic io.Writer) error {
 	}
 	s := profile.Store{}
 	switch args[0] {
+	case "trust", "untrust":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: %s", args[0])
+		}
+		dir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		dir, err = dotfile.Canonical(dir)
+		if err != nil {
+			return err
+		}
+		if args[0] == "untrust" {
+			return (trust.Store{}).Revoke(dir)
+		}
+		doc, err := dotfile.Find(dir)
+		if err != nil {
+			return err
+		}
+		if doc == nil || doc.Dir != dir {
+			return fmt.Errorf("trust requires a dotfile in the current directory")
+		}
+		for a := range doc.Profiles {
+			if _, err := agent.Get(a); err != nil {
+				return err
+			}
+		}
+		return (trust.Store{}).Grant(doc)
+	case "auto":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: auto")
+		}
+		paths, err := selections(diagnostic)
+		if err != nil {
+			return err
+		}
+		var code strings.Builder
+		for _, a := range agent.All() {
+			if p, ok := paths[a.Name()]; ok {
+				line, err := shell.Export(a.EnvVar(), p)
+				if err != nil {
+					return err
+				}
+				code.WriteString(line)
+			}
+		}
+		_, err = io.WriteString(out, code.String())
+		return err
 	case "local":
 		if len(args) != 3 {
 			return fmt.Errorf("usage: local <agent> <name>")
@@ -93,8 +143,18 @@ func run(args []string, out, diagnostic io.Writer) error {
 		if len(args) != 1 {
 			return fmt.Errorf("usage: current")
 		}
+		paths, err := selections(diagnostic)
+		if err != nil {
+			return err
+		}
 		for _, a := range agent.All() {
 			value, source := os.Getenv(a.EnvVar()), "env"
+			if value == "" {
+				if p, ok := paths[a.Name()]; ok {
+					value = p
+					source = "dotfile"
+				}
+			}
 			if value == "" {
 				source = "default"
 				var err error
@@ -103,7 +163,9 @@ func run(args []string, out, diagnostic io.Writer) error {
 					return err
 				}
 			}
-			fmt.Fprintf(out, "%s %s (%s)\n", a.Name(), value, source)
+			if _, err := fmt.Fprintf(out, "%s %s (%s)\n", a.Name(), value, source); err != nil {
+				return err
+			}
 		}
 		return nil
 	case "list":
@@ -124,7 +186,9 @@ func run(args []string, out, diagnostic io.Writer) error {
 				return err
 			}
 			for _, n := range names {
-				fmt.Fprintf(out, "%s %s\n", a.Name(), n)
+				if _, err := fmt.Fprintf(out, "%s %s\n", a.Name(), n); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

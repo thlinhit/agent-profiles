@@ -87,7 +87,7 @@ func (s Store) Create(agent, name string, template []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if err = root.Mkdir(name, 0o700); err != nil {
 		return "", err
 	}
@@ -154,6 +154,6 @@ func (s Store) Delete(agent, name string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	return root.RemoveAll(name)
 }

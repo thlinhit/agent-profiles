@@ -70,7 +70,7 @@ func Read(path, rootDir string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	st, err := root.Stat(rel)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func Read(path, rootDir string) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dotfile must stay inside repository root: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	st, err = f.Stat()
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func AtomicWrite(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err = f.Write(data); err != nil {
 		_ = f.Close()
 		return err
