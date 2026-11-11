@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/linhtruong/agent-profiles/internal/agent"
+	"github.com/linhtruong/agent-profiles/internal/dotfile"
 	"github.com/linhtruong/agent-profiles/internal/profile"
 	"github.com/linhtruong/agent-profiles/internal/shell"
 	"io"
@@ -35,6 +36,22 @@ func run(args []string, out, diagnostic io.Writer) error {
 	}
 	s := profile.Store{}
 	switch args[0] {
+	case "local":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: local <agent> <name>")
+		}
+		a, err := agent.Get(args[1])
+		if err != nil {
+			return err
+		}
+		if _, err = s.Resolve(a.Name(), args[2]); err != nil {
+			return err
+		}
+		dir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		return dotfile.Write(dir, a.Name(), args[2])
 	case "init":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: init zsh|bash")

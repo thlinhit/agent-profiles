@@ -10,6 +10,11 @@ import (
 )
 
 func TestShellSwitchIntegration(t *testing.T) {
+	cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOMODCACHE", strings.TrimSpace(string(cache)))
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data ' $`;&\n"))
