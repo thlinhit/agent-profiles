@@ -1,0 +1,9 @@
+version: 2
+builds:
+  - main: ./cmd/agent-profiles
+    binary: agent-profiles
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+release:
+  disable: true
