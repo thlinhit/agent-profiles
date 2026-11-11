@@ -51,6 +51,7 @@ func read(root *os.Root) (map[string]string, error) {
 	return entries, nil
 }
 func (Store) Trusted(doc *dotfile.Document) (bool, error) {
+	hash := digest(doc.Content)
 	dir, err := profile.DataDir()
 	if err != nil {
 		return false, err
@@ -69,7 +70,7 @@ func (Store) Trusted(doc *dotfile.Document) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return entries[doc.Dir] == digest(doc.Content), nil
+	return entries[doc.Dir] == hash, nil
 }
 func update(change func(map[string]string)) error {
 	dir, err := profile.DataDir()

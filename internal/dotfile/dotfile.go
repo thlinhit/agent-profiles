@@ -13,11 +13,11 @@ import (
 const Filename = ".agent-profile"
 const MaxSize = 4096
 
+// Document contains checked raw bytes, never parsed profile selections.
 type Document struct {
-	Dir      string
-	Path     string
-	Content  []byte
-	Profiles map[string]string
+	Dir     string
+	Path    string
+	Content []byte
 }
 
 func Parse(data []byte) (map[string]string, error) {
@@ -65,7 +65,13 @@ func boundary(start string) string {
 		}
 	}
 }
+
+// Read applies filesystem and size checks without invoking the TOML parser.
 func Read(path, rootDir string) (*Document, error) {
+	dir, err := Canonical(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return nil, err
@@ -105,11 +111,10 @@ func Read(path, rootDir string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, err := Parse(data)
-	if err != nil {
-		return nil, err
+	if len(data) > MaxSize {
+		return nil, fmt.Errorf("dotfile exceeds 4 KiB")
 	}
-	return &Document{Dir: filepath.Dir(path), Path: path, Content: data, Profiles: p}, nil
+	return &Document{Dir: dir, Path: path, Content: data}, nil
 }
 func Find(start string) (*Document, error) {
 	dir, err := Canonical(start)
@@ -195,7 +200,11 @@ func Write(dir, a, n string) error {
 		if e != nil {
 			return e
 		}
-		p = doc.Profiles
+		// Explicit local editing parses existing entries for merging, not selection.
+		p, e = Parse(doc.Content)
+		if e != nil {
+			return e
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}

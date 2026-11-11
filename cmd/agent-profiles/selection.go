@@ -31,8 +31,13 @@ func selections(diagnostic io.Writer) (map[string]string, error) {
 		_, err := fmt.Fprintf(diagnostic, "agent-profiles: untrusted dotfile in %q; run agent-profiles trust there\n", doc.Dir)
 		return paths, err
 	}
+	// Parse exactly the raw bytes whose canonical-directory hash was trusted.
+	profiles, err := dotfile.Parse(doc.Content)
+	if err != nil {
+		return nil, err
+	}
 	s := profile.Store{}
-	for a, n := range doc.Profiles {
+	for a, n := range profiles {
 		if _, err := agent.Get(a); err != nil {
 			return nil, err
 		}

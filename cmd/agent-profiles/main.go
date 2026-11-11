@@ -60,11 +60,7 @@ func run(args []string, out, diagnostic io.Writer) error {
 		if doc == nil || doc.Dir != dir {
 			return fmt.Errorf("trust requires a dotfile in the current directory")
 		}
-		for a := range doc.Profiles {
-			if _, err := agent.Get(a); err != nil {
-				return err
-			}
-		}
+		// Approval binds raw bytes only; resolution validates TOML after trust.
 		return (trust.Store{}).Grant(doc)
 	case "auto":
 		if len(args) != 1 {

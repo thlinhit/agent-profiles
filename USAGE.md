@@ -30,7 +30,10 @@ ap delete claude work --yes
 ```
 
 `local` requires an existing profile and writes in the current directory.
-`trust` approves only a dotfile in the current directory, not an ancestor's.
+`trust` approves the exact raw bytes of a dotfile in the current directory,
+not an ancestor's. It does not parse or validate profile selections; validation
+happens on the next trusted resolution. Explicit `local` editing parses existing
+entries to merge them, independently of automatic selection.
 Deletion without `--yes` prompts on terminal stdin with `[y/N]`. Only `y` or
 `yes`, case-insensitive, proceeds; an empty answer or any other input cancels.
 Non-terminal stdin is refused unless `--yes` is supplied. Prompts go to stderr,
@@ -41,9 +44,11 @@ Initialization immediately checks the current directory. Zsh checks again on
 initialization does not add duplicate hooks, and the auto hook preserves the
 previous exit status. The internal `auto` command can also be called manually.
 
-Only an approved dotfile can cause automatic exports. An untrusted or changed
-dotfile prints a one-line hint and emits nothing. Malformed files cause an error
-and emit nothing. A missing dotfile also emits nothing. Existing environment
+Only an approved dotfile can cause automatic exports. For `auto` and `current`,
+filesystem and size checks run first, then the raw-byte hash is checked against
+trust, and only trusted bytes reach the TOML parser. An untrusted or changed
+dotfile prints a one-line hint and is never parsed, even if malformed. Trusted
+malformed files cause an error and emit nothing. A missing dotfile also emits nothing. Existing environment
 values therefore remain in place when leaving a trusted directory or entering
 an untrusted one; use `ap off claude` outside a trusted selection to clear one.
 Inside a trusted directory the next hook will reapply that selection.
@@ -73,7 +78,7 @@ for concurrent writers. No dotfile can execute commands.
 | Strict names | `TestStrictNames` |
 | Safe dotfile write | `TestSafeDotfileWrite` |
 | Private permissions | `TestPrivatePermissions` |
-| Per-directory trust | `TestPerDirectoryTrust`, `TestAutoSwitchRequiresPerDirectoryTrust` |
+| Per-directory trust | `TestPerDirectoryTrust`, `TestAutoSwitchRequiresPerDirectoryTrust`, `TestUntrustedDotfileIsNeverParsed` |
 | Dotfile reading | `TestDotfileReading`, `FuzzParse` |
 
 Integration tests run real bash and zsh shells. An unavailable shell is reported

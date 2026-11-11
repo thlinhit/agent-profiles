@@ -38,7 +38,11 @@ func TestSafeDotfileWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc, err := Find(dir)
-	if err != nil || doc.Profiles["claude"] != "personal" {
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(doc.Content)
+	if err != nil || p["claude"] != "personal" {
 		t.Fatalf("roundtrip: %+v %v", doc, err)
 	}
 	st, _ := os.Stat(path)
