@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linhtruong/agent-profiles/internal/agent"
+	"github.com/thlinhit/agent-profiles/internal/agent"
 )
 
 func TestRegistryGet(t *testing.T) {

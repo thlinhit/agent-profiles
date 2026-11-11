@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/creack/pty"
-	"github.com/linhtruong/agent-profiles/internal/profile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 func TestDeleteInteractiveConfirmation(t *testing.T) {

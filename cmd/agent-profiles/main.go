@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/linhtruong/agent-profiles/internal/agent"
-	"github.com/linhtruong/agent-profiles/internal/dotfile"
-	"github.com/linhtruong/agent-profiles/internal/profile"
-	"github.com/linhtruong/agent-profiles/internal/shell"
-	"github.com/linhtruong/agent-profiles/internal/trust"
+	"github.com/thlinhit/agent-profiles/internal/agent"
+	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
+	"github.com/thlinhit/agent-profiles/internal/shell"
+	"github.com/thlinhit/agent-profiles/internal/trust"
 	"io"
 	"os"
 	"strings"

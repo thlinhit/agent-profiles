@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linhtruong/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/dotfile"
 )
 
 func TestUntrustedDotfileIsNeverParsed(t *testing.T) {

@@ -2,8 +2,8 @@ package agent
 
 import (
 	"fmt"
-	"github.com/linhtruong/agent-profiles/internal/agent/claude"
-	"github.com/linhtruong/agent-profiles/internal/agent/pi"
+	"github.com/thlinhit/agent-profiles/internal/agent/claude"
+	"github.com/thlinhit/agent-profiles/internal/agent/pi"
 )
 
 type Agent interface {

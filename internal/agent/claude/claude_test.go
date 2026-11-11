@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/linhtruong/agent-profiles/internal/agent/claude"
+	"github.com/thlinhit/agent-profiles/internal/agent/claude"
 )
 
 func TestClaudeIdentity(t *testing.T) {

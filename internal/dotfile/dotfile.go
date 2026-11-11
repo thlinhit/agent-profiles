@@ -2,7 +2,7 @@ package dotfile
 
 import (
 	"fmt"
-	"github.com/linhtruong/agent-profiles/internal/profile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 	"github.com/pelletier/go-toml/v2"
 	"io"
 	"os"

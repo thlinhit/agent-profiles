@@ -1,8 +1,8 @@
 package trust
 
 import (
-	"github.com/linhtruong/agent-profiles/internal/dotfile"
-	"github.com/linhtruong/agent-profiles/internal/profile"
+	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 	"os"
 	"path/filepath"
 	"testing"

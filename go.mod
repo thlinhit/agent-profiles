@@ -1,4 +1,4 @@
-module github.com/linhtruong/agent-profiles
+module github.com/thlinhit/agent-profiles
 
 go 1.25.0
 
