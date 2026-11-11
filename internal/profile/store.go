@@ -117,14 +117,16 @@ func (s Store) Resolve(agent, name string) (string, error) {
 		return "", err
 	}
 	dir, err := s.agentDir(agent, false)
+	if err == nil {
+		err = CheckDir(filepath.Join(dir, name))
+	}
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("profile %q does not exist; run ap list", agent+"/"+name)
+		}
 		return "", err
 	}
-	p := filepath.Join(dir, name)
-	if err = CheckDir(p); err != nil {
-		return "", err
-	}
-	return p, nil
+	return filepath.Join(dir, name), nil
 }
 func (s Store) List(agent string) ([]string, error) {
 	dir, err := s.agentDir(agent, false)

@@ -22,7 +22,8 @@ func TestDeleteInteractiveConfirmation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
 			s := profile.Store{}
-			if _, err := s.Create("claude", "work", nil); err != nil {
+			path, err := s.Create("claude", "work", nil)
+			if err != nil {
 				t.Fatal(err)
 			}
 			master, terminal, err := pty.Open()
@@ -47,7 +48,7 @@ func TestDeleteInteractiveConfirmation(t *testing.T) {
 			if out.Len() != 0 || !strings.Contains(diagnostic.String(), "[y/N]") {
 				t.Fatalf("prompt on wrong channel or missing: %q %q", out.String(), diagnostic.String())
 			}
-			_, err = s.Resolve("claude", "work")
+			_, err = os.Lstat(path)
 			if tc.deleted && !os.IsNotExist(err) {
 				t.Fatalf("profile not deleted: %v", err)
 			}
@@ -60,7 +61,8 @@ func TestDeleteInteractiveConfirmation(t *testing.T) {
 func TestDeleteNonTTYRefusal(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
 	s := profile.Store{}
-	if _, err := s.Create("claude", "work", nil); err != nil {
+	path, err := s.Create("claude", "work", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	r, w, err := os.Pipe()
@@ -88,7 +90,7 @@ func TestDeleteNonTTYRefusal(t *testing.T) {
 	if err := run([]string{"delete", "claude", "work", "--yes"}, &out, &diagnostic); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Resolve("claude", "work"); !os.IsNotExist(err) {
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("--yes did not delete: %v", err)
 	}
 }
