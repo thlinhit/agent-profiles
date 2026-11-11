@@ -1,7 +1,9 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,6 +91,9 @@ func (s Store) Create(agent, name string, template []byte) (string, error) {
 	}
 	defer func() { _ = root.Close() }()
 	if err = root.Mkdir(name, 0o700); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", fmt.Errorf("profile %q already exists", agent+"/"+name)
+		}
 		return "", err
 	}
 	if len(template) > 0 {
