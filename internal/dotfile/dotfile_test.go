@@ -130,6 +130,16 @@ func TestParse(t *testing.T) {
 		t.Fatalf("valid TOML: %v %v", p, err)
 	}
 }
+func TestParseRejectsNonStringValues(t *testing.T) {
+	for _, value := range []string{"00:00:00", "2026-11-11", "2026-11-11T00:00:00", "2026-11-11T00:00:00Z", "true", "1", "1.5", "['work']", "{name='work'}"} {
+		t.Run(value, func(t *testing.T) {
+			if _, err := Parse([]byte("claude = " + value)); err == nil {
+				t.Fatalf("accepted non-string value %s", value)
+			}
+		})
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	for _, s := range []string{"claude = \"work\"", "", "\xff", "claude = '../x'"} {
 		f.Add([]byte(s))

@@ -24,17 +24,25 @@ func Parse(data []byte) (map[string]string, error) {
 	if len(data) > MaxSize {
 		return nil, fmt.Errorf("dotfile exceeds 4 KiB")
 	}
-	var p map[string]string
-	if err := toml.Unmarshal(data, &p); err != nil {
+	// Decode native TOML values first: typed-map decoding in go-toml can panic
+	// when a date or time is assigned to a string. Enforce our schema explicitly.
+	var values map[string]any
+	if err := toml.Unmarshal(data, &values); err != nil {
 		return nil, err
 	}
-	for a, n := range p {
+	p := make(map[string]string, len(values))
+	for a, value := range values {
+		n, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("profile for %q must be a string", a)
+		}
 		if err := profile.ValidateName(a); err != nil {
 			return nil, err
 		}
 		if err := profile.ValidateName(n); err != nil {
 			return nil, err
 		}
+		p[a] = n
 	}
 	return p, nil
 }

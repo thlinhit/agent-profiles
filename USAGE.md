@@ -31,7 +31,10 @@ ap delete claude work --yes
 
 `local` requires an existing profile and writes in the current directory.
 `trust` approves only a dotfile in the current directory, not an ancestor's.
-Deletion requires the explicit `--yes` confirmation flag.
+Deletion without `--yes` prompts on terminal stdin with `[y/N]`. Only `y` or
+`yes`, case-insensitive, proceeds; an empty answer or any other input cancels.
+Non-terminal stdin is refused unless `--yes` is supplied. Prompts go to stderr,
+including when deleting through the `ap` shell function.
 
 Initialization immediately checks the current directory. Zsh checks again on
 `chpwd`; bash checks before each prompt. Existing hooks are retained, repeated

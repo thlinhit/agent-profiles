@@ -201,8 +201,16 @@ func run(args []string, out, diagnostic io.Writer) error {
 			return err
 		}
 		if args[0] == "delete" {
-			if len(args) != 4 || args[3] != "--yes" {
-				return fmt.Errorf("delete requires --yes confirmation")
+			if len(args) == 4 && args[3] != "--yes" {
+				return fmt.Errorf("unknown option %q", args[3])
+			}
+			if _, err := s.Resolve(a.Name(), args[2]); err != nil {
+				return err
+			}
+			if len(args) == 3 {
+				if err := confirmDelete(os.Stdin, diagnostic, a.Name(), args[2]); err != nil {
+					return err
+				}
 			}
 			return s.Delete(a.Name(), args[2])
 		}
