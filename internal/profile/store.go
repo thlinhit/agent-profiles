@@ -3,6 +3,7 @@ package profile
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -128,6 +129,51 @@ func (s Store) Resolve(agent, name string) (string, error) {
 	}
 	return filepath.Join(dir, name), nil
 }
+
+// maxSettingsSize caps how much of a source settings.json is copied.
+const maxSettingsSize = 1 << 20
+
+// ReadSettings returns the settings.json of an existing profile, or nil when
+// the profile has none. Symlinks and non-regular files are refused so a copy
+// never reads outside the profile directory.
+func (s Store) ReadSettings(agent, name string) ([]byte, error) {
+	dir, err := s.Resolve(agent, name)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	st, err := root.Lstat("settings.json")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("settings.json of %q is not a regular file", agent+"/"+name)
+	}
+	if st.Size() > maxSettingsSize {
+		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", agent+"/"+name, maxSettingsSize)
+	}
+	f, err := root.Open("settings.json")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxSettingsSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxSettingsSize {
+		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", agent+"/"+name, maxSettingsSize)
+	}
+	return data, nil
+}
+
 func (s Store) List(agent string) ([]string, error) {
 	dir, err := s.agentDir(agent, false)
 	if os.IsNotExist(err) {

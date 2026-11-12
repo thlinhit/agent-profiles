@@ -50,7 +50,7 @@ func run(args []string, out, diagnostic io.Writer) error {
 	case "list":
 		return runList(s, args, out)
 	case "create":
-		return runCreate(s, args, out)
+		return runCreate(s, args, out, diagnostic)
 	case "delete":
 		return runDelete(s, args, diagnostic)
 	}

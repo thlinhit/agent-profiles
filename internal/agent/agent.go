@@ -14,6 +14,20 @@ type Agent interface {
 	InitTemplate() []byte
 }
 
+// BaseURLSetter is implemented by agents whose settings can point at a
+// custom API endpoint (for example a local proxy).
+type BaseURLSetter interface {
+	// WithBaseURL returns settings with the base URL applied. A nil
+	// template means start from an empty settings object.
+	WithBaseURL(template []byte, baseURL string) ([]byte, error)
+}
+
+// AuthTokenSetter is implemented by agents whose settings can carry an API
+// auth token (for example for a local proxy).
+type AuthTokenSetter interface {
+	WithAuthToken(template []byte, token string) ([]byte, error)
+}
+
 func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
 func Get(name string) (Agent, error) {
 	for _, a := range All() {
