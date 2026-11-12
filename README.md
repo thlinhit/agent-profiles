@@ -28,13 +28,20 @@ Requires Go 1.25 or newer.
 go install github.com/thlinhit/agent-profiles/cmd/agent-profiles@latest
 ```
 
-Or build from source:
+Or from a local clone:
 
 ```sh
-go build -o agent-profiles ./cmd/agent-profiles
+go install ./cmd/agent-profiles
 ```
 
-Then add to your `~/.zshrc` or `~/.bashrc`:
+Both install into `$(go env GOPATH)/bin` (usually `~/go/bin`). Make sure that
+directory is on your `PATH`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Then add to your `~/.zshrc` or `~/.bashrc`, after the `PATH` line:
 
 ```sh
 eval "$(agent-profiles init zsh)"   # or: init bash
@@ -61,6 +68,25 @@ ap trust               # approve it; required before it takes effect
 From then on, entering the directory switches automatically (zsh on `chpwd`,
 bash before each prompt). If `.agent-profile` changes, run `ap trust` again.
 `ap untrust` revokes approval.
+
+## Shared Claude guardrails
+
+`ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
+Profiles may edit these settings afterwards. Deny rules live in managed settings
+so every profile gets them regardless of `CLAUDE_CONFIG_DIR`.
+
+Install the shared deny rules on macOS from this repository:
+
+```sh
+sudo install -m 644 -o root managed/claude/managed-settings.json "/Library/Application Support/ClaudeCode/"
+```
+
+To roll back, use `git revert` on the guardrail change and reinstall, or remove
+the installed file:
+
+```sh
+sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
+```
 
 ## Commands
 

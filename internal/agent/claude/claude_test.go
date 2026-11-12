@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/thlinhit/agent-profiles/internal/agent/claude"
@@ -57,5 +58,27 @@ func TestClaudeInitTemplate(t *testing.T) {
 	template := (claude.Adapter{}).InitTemplate()
 	if !json.Valid(template) {
 		t.Fatalf("InitTemplate() is not valid JSON: %q", template)
+	}
+	var settings struct {
+		Permissions map[string]json.RawMessage `json:"permissions"`
+	}
+	if err := json.Unmarshal(template, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := settings.Permissions["deny"]; ok {
+		t.Fatal("InitTemplate() must not contain permissions.deny")
+	}
+	for key, want := range map[string]any{
+		"allow":       []any{"Edit", "Bash(git *)"},
+		"ask":         []any{"Bash(rm *)", "Bash(git push *)", "Bash(curl *)", "Bash(git -c *)", "Bash(git config *)", "Bash(git -C *)", "Bash(git --*)", "Bash(git submodule *)", "Bash(git difftool *)", "WebFetch"},
+		"defaultMode": "auto",
+	} {
+		var got any
+		if err := json.Unmarshal(settings.Permissions[key], &got); err != nil {
+			t.Fatalf("permissions.%s: %v", key, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("permissions.%s = %v; want %v", key, got, want)
+		}
 	}
 }

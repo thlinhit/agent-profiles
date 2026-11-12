@@ -16,4 +16,14 @@ func (Adapter) DefaultConfigDir() (string, error) {
 	}
 	return filepath.Join(home, ".claude"), nil
 }
-func (Adapter) InitTemplate() []byte { return []byte("{}\n") }
+
+const initTemplate = `{
+  "permissions": {
+    "allow": ["Edit", "Bash(git *)"],
+    "ask": ["Bash(rm *)", "Bash(git push *)", "Bash(curl *)", "Bash(git -c *)", "Bash(git config *)", "Bash(git -C *)", "Bash(git --*)", "Bash(git submodule *)", "Bash(git difftool *)", "WebFetch"],
+    "defaultMode": "auto"
+  }
+}
+`
+
+func (Adapter) InitTemplate() []byte { return []byte(initTemplate) }

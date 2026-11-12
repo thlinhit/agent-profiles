@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(security *)",
+      "CronCreate",
+      "CronDelete",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Read(**/secrets/**)",
+      "Read(**/.env*)"
+    ]
+  }
+}
