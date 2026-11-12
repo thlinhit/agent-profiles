@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
+
 	"github.com/thlinhit/agent-profiles/internal/agent"
 	"github.com/thlinhit/agent-profiles/internal/dotfile"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 	"github.com/thlinhit/agent-profiles/internal/trust"
-	"io"
-	"os"
 )
 
 func selections(diagnostic io.Writer) (map[string]string, error) {

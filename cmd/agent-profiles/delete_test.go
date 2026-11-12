@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/creack/pty"
+
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 

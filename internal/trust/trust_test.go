@@ -1,11 +1,12 @@
 package trust
 
 import (
-	"github.com/thlinhit/agent-profiles/internal/dotfile"
-	"github.com/thlinhit/agent-profiles/internal/profile"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 func TestPerDirectoryTrust(t *testing.T) {

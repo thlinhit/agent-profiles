@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/thlinhit/agent-profiles/internal/dotfile"
-	"github.com/thlinhit/agent-profiles/internal/profile"
 	"io"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 type Store struct{}
