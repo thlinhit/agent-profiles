@@ -62,6 +62,48 @@ func TestExec(t *testing.T) {
 	}
 }
 
+func TestExecDefaultsToAgentBinary(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
+	bin := t.TempDir()
+	for _, name := range []string{"claude", "pi"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	for _, tc := range []struct{ agent, env string }{{"claude", "CLAUDE_CONFIG_DIR"}, {"pi", "PI_CODING_AGENT_DIR"}} {
+		t.Run(tc.agent, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := run([]string{"create", tc.agent, "work"}, &out, &out); err != nil {
+				t.Fatal(err)
+			}
+			dir := strings.TrimSpace(out.String())
+			got := stubExecve(t)
+			if err := run([]string{"exec", tc.agent, "work"}, &out, &out); err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(bin, tc.agent); got.path != want {
+				t.Fatalf("path = %q; want %q", got.path, want)
+			}
+			if !reflect.DeepEqual(got.argv, []string{tc.agent}) {
+				t.Fatalf("argv = %q; want [%s]", got.argv, tc.agent)
+			}
+			if !slicesContains(got.env, tc.env+"="+dir) {
+				t.Fatalf("env missing %s=%s", tc.env, dir)
+			}
+		})
+	}
+}
+
+func slicesContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func TestExecRejected(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
 	var out bytes.Buffer

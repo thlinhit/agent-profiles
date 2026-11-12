@@ -101,7 +101,7 @@ sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 | `list [agent]` | List profiles |
 | `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin]` | Create a profile; `--init` writes a starter config; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
 | `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes` |
-| `exec <agent> <name> -- <cmd> [args...]` | Run one command with a profile selected, leaving the current shell unchanged (e.g. `ap exec claude work -- claude`). Arguments are passed verbatim, never through a shell |
+| `exec <agent> <name> [-- <cmd> [args...]]` | Run one command with a profile selected, leaving the current shell unchanged. Without `--` it runs the agent itself (`ap exec claude work` runs `claude`). Arguments are passed verbatim, never through a shell |
 | `local <agent> <name>` | Write the selection to `.agent-profile` in the current directory |
 | `trust` / `untrust` | Approve or revoke the current directory's `.agent-profile` |
 
