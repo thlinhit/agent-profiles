@@ -2,12 +2,14 @@ package dotfile
 
 import (
 	"fmt"
-	"github.com/thlinhit/agent-profiles/internal/profile"
-	"github.com/pelletier/go-toml/v2"
 	"io"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/pelletier/go-toml/v2"
+
+	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 const Filename = ".agent-profile"
