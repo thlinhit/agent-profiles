@@ -21,7 +21,8 @@ func (Adapter) DefaultConfigDir() (string, error) {
 }
 
 // statusLineCommand renders "profile │ model │ 🧠 ctx% │ dir (branch*)" from
-// the JSON Claude Code pipes on stdin. Colors follow cc-statusline: profile
+// the JSON Claude Code pipes on stdin. The profile gets an emoji chosen by
+// a cksum of its name, so each profile keeps the same one. Colors follow cc-statusline: profile
 // magenta, model blue, context green/orange/yellow/red by usage, dir cyan,
 // branch green with a red dirty marker, dim separators. Missing data drops
 // its segment. Needs jq; git is optional.
@@ -31,7 +32,12 @@ r=$(c 0)
 sep=" $(c 2)│$r "
 line=
 add() { if [ -n "$1" ]; then line="${line:+$line$sep}$1"; fi; }
-if [ -n "$CLAUDE_CONFIG_DIR" ]; then add "$(c '38;2;180;140;255')$(basename "$CLAUDE_CONFIG_DIR")$r"; fi
+if [ -n "$CLAUDE_CONFIG_DIR" ]; then
+  name=$(basename "$CLAUDE_CONFIG_DIR")
+  set -- 🦊 🐙 🦉 🐝 🐢 🦄 🐳 🦖 🐧 🦜 🐼 🦁
+  shift $(( $(printf '%s' "$name" | cksum | cut -d' ' -f1) % $# ))
+  add "$1 $(c '38;2;180;140;255')$name$r"
+fi
 model=$(printf '%s' "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
 if [ -n "$model" ]; then add "$(c '38;2;0;153;255')$model$r"; fi
 pct=$(printf '%s' "$input" | jq -r '.context_window | select(.current_usage != null) | (.context_window_size // 200000) as $s | (if $s > 0 then $s else 200000 end) as $w | .current_usage | ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)) * 100 / $w | floor' 2>/dev/null)

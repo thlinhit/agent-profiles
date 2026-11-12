@@ -72,7 +72,7 @@ bash before each prompt). If `.agent-profile` changes, run `ap trust` again.
 ## Shared Claude guardrails
 
 `ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
-It also seeds a status line showing profile, model, context used, and directory with git branch and dirty marker (`*`); requires `jq` and makes no API calls.
+It also seeds a status line showing the profile (with an emoji picked from its name), model, context used, and directory with git branch and dirty marker (`*`); requires `jq` and makes no API calls.
 `ap update claude <name>` (or `--all`) refreshes the status line in existing profiles and leaves `permissions` and `env` untouched.
 Profiles may edit these settings afterwards. Deny rules live in managed settings
 so every profile gets them regardless of `CLAUDE_CONFIG_DIR`.

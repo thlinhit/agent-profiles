@@ -117,15 +117,15 @@ func TestClaudeInitTemplateStatusLine(t *testing.T) {
 		name, cwd, fields, profile, want string
 		dirty                            bool
 	}{
-		{"clean git", repo, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":10000,"cache_creation_input_tokens":15000,"cache_read_input_tokens":25000,"output_tokens":90000}}`, "work", "work │ Opus 5.5 │ 🧠 25% │ agent-profiles (main)", false},
-		{"dirty git", repo, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":50000}}`, "work", "work │ Opus 5.5 │ 🧠 25% │ agent-profiles (main*)", true},
-		{"non git", nonGit, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":100000,"current_usage":{"input_tokens":25999}}`, "work", "work │ Opus 5.5 │ 🧠 25% │ plain directory", false},
-		{"missing fields", "", ``, "work", "work", false},
-		{"null fields", "", `"model":null,"context_window":null`, "work", "work", false},
-		{"no current usage", "", `"model":{"display_name":"Sonnet"},"context_window":{"context_window_size":200000}`, "work", "work │ Sonnet", false},
-		{"default window", "", `"context_window":{"current_usage":{"input_tokens":50000}}`, "work", "work │ 🧠 25%", false},
-		{"zero window", "", `"context_window":{"context_window_size":0,"current_usage":{"input_tokens":50000}}`, "work", "work │ 🧠 25%", false},
-		{"zero usage", "", `"context_window":{"current_usage":{}}`, "work", "work │ 🧠 0%", false},
+		{"clean git", repo, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":10000,"cache_creation_input_tokens":15000,"cache_read_input_tokens":25000,"output_tokens":90000}}`, "work", "🐼 work │ Opus 5.5 │ 🧠 25% │ agent-profiles (main)", false},
+		{"dirty git", repo, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":50000}}`, "work", "🐼 work │ Opus 5.5 │ 🧠 25% │ agent-profiles (main*)", true},
+		{"non git", nonGit, `"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":100000,"current_usage":{"input_tokens":25999}}`, "work", "🐼 work │ Opus 5.5 │ 🧠 25% │ plain directory", false},
+		{"missing fields", "", ``, "work", "🐼 work", false},
+		{"null fields", "", `"model":null,"context_window":null`, "work", "🐼 work", false},
+		{"no current usage", "", `"model":{"display_name":"Sonnet"},"context_window":{"context_window_size":200000}`, "work", "🐼 work │ Sonnet", false},
+		{"default window", "", `"context_window":{"current_usage":{"input_tokens":50000}}`, "work", "🐼 work │ 🧠 25%", false},
+		{"zero window", "", `"context_window":{"context_window_size":0,"current_usage":{"input_tokens":50000}}`, "work", "🐼 work │ 🧠 25%", false},
+		{"zero usage", "", `"context_window":{"current_usage":{}}`, "work", "🐼 work │ 🧠 0%", false},
 		{"missing profile", nonGit, `"model":{"display_name":"Opus 5.5"}`, "", "Opus 5.5 │ plain directory", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -167,6 +167,50 @@ func TestClaudeInitTemplateStatusLine(t *testing.T) {
 
 var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
+func TestClaudeStatusLineProfileEmoji(t *testing.T) {
+	var settings struct {
+		StatusLine struct {
+			Command string `json:"command"`
+		} `json:"statusLine"`
+	}
+	if err := json.Unmarshal((claude.Adapter{}).InitTemplate(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	emoji := func(t *testing.T, profile string) string {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", settings.StatusLine.Command)
+		cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR=/x/"+profile)
+		cmd.Stdin = strings.NewReader("{}")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, name, ok := strings.Cut(ansi.ReplaceAllString(string(out), ""), " ")
+		if !ok || name != profile {
+			t.Fatalf("output = %q; want \"<emoji> %s\"", out, profile)
+		}
+		return e
+	}
+	set := map[string]bool{}
+	for _, e := range strings.Fields("🦊 🐙 🦉 🐝 🐢 🦄 🐳 🦖 🐧 🦜 🐼 🦁") {
+		set[e] = true
+	}
+	for profile, want := range map[string]string{"work": "🐼", "ai-hero": "🦉"} {
+		if got := emoji(t, profile); got != want {
+			t.Errorf("%s emoji = %q; want %q", profile, got, want)
+		}
+	}
+	for _, profile := range []string{"a", "personal", "default", "x_y-9"} {
+		got := emoji(t, profile)
+		if !set[got] {
+			t.Errorf("%s emoji %q not from the list", profile, got)
+		}
+		if again := emoji(t, profile); again != got {
+			t.Errorf("%s emoji changed between runs: %q then %q", profile, got, again)
+		}
+	}
+}
+
 func TestClaudeStatusLineColors(t *testing.T) {
 	var settings struct {
 		StatusLine struct {
@@ -201,7 +245,7 @@ func TestClaudeStatusLineColors(t *testing.T) {
 	}
 	got := render(t, `{"model":{"display_name":"Opus 5.5"},"context_window":{"context_window_size":100,"current_usage":{"input_tokens":10}},"cwd":"/tmp/plain"}`)
 	sep := " " + dim + "│" + reset + " "
-	want := magenta + "work" + reset + sep + blue + "Opus 5.5" + reset + sep + "🧠 " + green + "10%" + reset + sep + cyan + "plain" + reset
+	want := "🐼 " + magenta + "work" + reset + sep + blue + "Opus 5.5" + reset + sep + "🧠 " + green + "10%" + reset + sep + cyan + "plain" + reset
 	if got != want {
 		t.Fatalf("colored output = %q; want %q", got, want)
 	}
