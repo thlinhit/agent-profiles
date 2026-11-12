@@ -35,7 +35,7 @@ func run(args []string, out, diagnostic io.Writer) error {
 		out = diagnostic
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create delete exec local trust untrust")
+		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create update delete exec local trust untrust")
 		return err
 	}
 	s := profile.Store{}
@@ -58,6 +58,8 @@ func run(args []string, out, diagnostic io.Writer) error {
 		return runCreate(s, args, out, diagnostic)
 	case "delete":
 		return runDelete(s, args, diagnostic)
+	case "update":
+		return runUpdate(s, args, out)
 	case "exec":
 		return runExec(s, args)
 	}

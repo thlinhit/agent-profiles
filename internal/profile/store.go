@@ -174,6 +174,41 @@ func (s Store) ReadSettings(agent, name string) ([]byte, error) {
 	return data, nil
 }
 
+// WriteSettings atomically replaces a profile's settings.json with mode 0600.
+// It writes a temporary file in the profile directory and renames it over
+// the target, so a failure never leaves a partial settings file.
+func (s Store) WriteSettings(agent, name string, data []byte) error {
+	dir, err := s.Resolve(agent, name)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if st, err := root.Lstat("settings.json"); err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("settings.json of %q is not a regular file", agent+"/"+name)
+	}
+	const tmp = ".settings.json.tmp"
+	_ = root.Remove(tmp)
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if ce := f.Close(); err == nil {
+		err = ce
+	}
+	if err == nil {
+		err = root.Rename(tmp, "settings.json")
+	}
+	if err != nil {
+		_ = root.Remove(tmp)
+	}
+	return err
+}
+
 func (s Store) List(agent string) ([]string, error) {
 	dir, err := s.agentDir(agent, false)
 	if os.IsNotExist(err) {

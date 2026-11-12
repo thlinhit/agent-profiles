@@ -28,7 +28,16 @@ type AuthTokenSetter interface {
 	WithAuthToken(template []byte, token string) ([]byte, error)
 }
 
-func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
+// SettingsUpdater is implemented by agents that can refresh the tool-owned
+// parts of an existing profile's settings (for example the status line)
+// without touching what the user may have edited.
+type SettingsUpdater interface {
+	// UpdateSettings returns current with tool-owned keys refreshed. A nil
+	// current means the profile has no settings file yet.
+	UpdateSettings(current []byte) ([]byte, error)
+}
+
+func All()[]Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
 func Get(name string) (Agent, error) {
 	for _, a := range All() {
 		if a.Name() == name {
