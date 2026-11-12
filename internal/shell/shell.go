@@ -37,6 +37,10 @@ func Init(name string) (string, error) {
 	}
 	shim := `ap() {
   local _ap_code
+  if [ "$1" = exec ]; then
+    command agent-profiles "$@"
+    return $?
+  fi
   _ap_code=$(command agent-profiles "$@" --emit-shell) || return $?
   eval "$_ap_code"
 }

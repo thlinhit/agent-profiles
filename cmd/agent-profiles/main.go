@@ -18,7 +18,12 @@ func main() {
 func run(args []string, out, diagnostic io.Writer) error {
 	emit := false
 	filtered := make([]string, 0, len(args))
-	for _, arg := range args {
+	for i, arg := range args {
+		if arg == "--" {
+			// Everything after "--" belongs to another program (ap exec).
+			filtered = append(filtered, args[i:]...)
+			break
+		}
 		if arg == "--emit-shell" {
 			emit = true
 		} else {
@@ -30,7 +35,7 @@ func run(args []string, out, diagnostic io.Writer) error {
 		out = diagnostic
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create delete local trust untrust")
+		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create delete exec local trust untrust")
 		return err
 	}
 	s := profile.Store{}
@@ -53,6 +58,8 @@ func run(args []string, out, diagnostic io.Writer) error {
 		return runCreate(s, args, out, diagnostic)
 	case "delete":
 		return runDelete(s, args, diagnostic)
+	case "exec":
+		return runExec(s, args)
 	}
 	return fmt.Errorf("unknown command %q", args[0])
 }
