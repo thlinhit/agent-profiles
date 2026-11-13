@@ -1,5 +1,10 @@
 # agent-profiles: plan
 
+> Historical. Superseded by [README.md](./README.md) for behavior and
+> [CONTEXT.md](./CONTEXT.md) for vocabulary. Scope, command names and some terms
+> below are out of date (for example "Claude Code only", `--emit-shell`,
+> "approve").
+
 Working name, rename freely. A Go CLI that switches per-agent config profiles
 (accounts, settings, MCP, skills) per shell and per directory. Clean
 reimplementation inspired by `quinnjr/claude-code-profiles` (MIT). No code is

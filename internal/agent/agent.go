@@ -29,13 +29,23 @@ type AuthTokenSetter interface {
 	WithAuthToken(template []byte, token string) ([]byte, error)
 }
 
-// SettingsUpdater is implemented by agents that can refresh the tool-owned
+// SettingsUpdater is implemented by agents that can refresh the ap-owned
 // parts of an existing profile's settings (for example the status line)
 // without touching what the user may have edited.
 type SettingsUpdater interface {
-	// UpdateSettings returns current with tool-owned keys refreshed. A nil
+	// UpdateSettings returns current with ap-owned keys refreshed. A nil
 	// current means the profile has no settings file yet.
 	UpdateSettings(current []byte) ([]byte, error)
+}
+
+// SkillDirsSetter is implemented by agents that must be told about the real
+// directories behind linked skills. Claude Code resolves skill symlinks and
+// prompts before reading outside its working directories, so the targets are
+// added as additional directories (Linked-skill access).
+type SkillDirsSetter interface {
+	// SetSkillDirs drops prev entries that are not in next, appends missing
+	// next entries, and keeps everything else the user configured.
+	SetSkillDirs(current []byte, prev, next []string) ([]byte, error)
 }
 
 func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }

@@ -62,7 +62,7 @@ ap off claude                  # back to the default config dir
 ```sh
 cd ~/code/work-repo
 ap local claude work   # writes .agent-profile in this directory
-ap trust               # approve it; required before it takes effect
+ap trust               # trust it; required before it takes effect
 ```
 
 From then on, entering the directory switches automatically (zsh on `chpwd`,
@@ -172,7 +172,7 @@ sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 | `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes` |
 | `exec <agent> <name> [-- <cmd> [args...]]` | Run one command with a profile selected, leaving the current shell unchanged. Without `--` it runs the agent itself (`ap exec claude work` runs `claude`). Arguments are passed verbatim, never through a shell |
 | `local <agent> <name>` | Write the selection to `.agent-profile` in the current directory |
-| `trust` / `untrust` | Approve or revoke the current directory's `.agent-profile` |
+| `trust` / `untrust` | Trust or untrust the current directory's `.agent-profile` |
 
 Profiles live in `$XDG_DATA_HOME/agent-profiles/<agent>/<name>`
 (default `~/.local/share/agent-profiles/<agent>/<name>`).
@@ -206,7 +206,7 @@ to clear them.
 trusted dotfile selection, then the agent's default directory.
 
 **`local` and `trust`.** `local` requires an existing profile and merges with
-existing entries in the dotfile. `trust` approves only a dotfile in the current
+existing entries in the dotfile. `trust` applies only to a dotfile in the current
 directory, not an ancestor's, and does not validate it; validation happens on
 the next trusted resolution.
 

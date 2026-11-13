@@ -69,12 +69,18 @@ func runSkills(s profile.Store, args []string, out io.Writer) error {
 		if len(args) == 7 {
 			name = args[6]
 		}
-		return addSkill(dir, source, name)
+		if err := addSkill(dir, source, name); err != nil {
+			return err
+		}
+		return syncSkillDirs(s, a, args[3])
 	case "rm":
 		if len(args) != 5 {
 			return fmt.Errorf("usage: skills rm <agent> <profile> <skill>")
 		}
-		return removeSkill(dir, args[4])
+		if err := removeSkill(dir, args[4]); err != nil {
+			return err
+		}
+		return syncSkillDirs(s, a, args[3])
 	default:
 		return fmt.Errorf("unknown skills command %q", args[1])
 	}

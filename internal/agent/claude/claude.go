@@ -162,3 +162,77 @@ func setEnv(template []byte, key, value string) ([]byte, error) {
 	}
 	return append(out, '\n'), nil
 }
+
+// SetSkillDirs reconciles permissions.additionalDirectories with the resolved
+// skill targets. Entries ap did not add (not in prev) are never removed.
+func (Adapter) SetSkillDirs(current []byte, prev, next []string) ([]byte, error) {
+	settings := map[string]json.RawMessage{}
+	if len(current) > 0 {
+		if err := json.Unmarshal(current, &settings); err != nil {
+			return nil, fmt.Errorf("parse settings: %w", err)
+		}
+		if settings == nil {
+			return nil, fmt.Errorf("parse settings: not a JSON object")
+		}
+	}
+	perms := map[string]json.RawMessage{}
+	if raw, ok := settings["permissions"]; ok {
+		if err := json.Unmarshal(raw, &perms); err != nil || perms == nil {
+			return nil, fmt.Errorf("parse settings: permissions is not a JSON object")
+		}
+	}
+	var dirs []string
+	if raw, ok := perms["additionalDirectories"]; ok {
+		if err := json.Unmarshal(raw, &dirs); err != nil {
+			return nil, fmt.Errorf("parse settings: permissions.additionalDirectories is not a string list")
+		}
+	}
+	want := map[string]bool{}
+	for _, d := range next {
+		want[d] = true
+	}
+	stale := map[string]bool{}
+	for _, d := range prev {
+		if !want[d] {
+			stale[d] = true
+		}
+	}
+	kept := []string{}
+	have := map[string]bool{}
+	for _, d := range dirs {
+		if stale[d] || have[d] {
+			continue
+		}
+		have[d] = true
+		kept = append(kept, d)
+	}
+	for _, d := range next {
+		if !have[d] {
+			have[d] = true
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == 0 {
+		delete(perms, "additionalDirectories")
+	} else {
+		raw, err := json.Marshal(kept)
+		if err != nil {
+			return nil, err
+		}
+		perms["additionalDirectories"] = raw
+	}
+	if len(perms) == 0 {
+		delete(settings, "permissions")
+	} else {
+		raw, err := json.Marshal(perms)
+		if err != nil {
+			return nil, err
+		}
+		settings["permissions"] = raw
+	}
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
+}

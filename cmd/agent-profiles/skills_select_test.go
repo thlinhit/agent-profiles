@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -482,5 +483,27 @@ func TestSelectFormBlocksDuplicateNames(t *testing.T) {
 	drive(f, key(tea.KeyEnter))
 	if !strings.Contains(f.View(), "two skills named code-review") {
 		t.Errorf("want validation error, view:\n%s\nselected=%v", f.View(), *selected)
+	}
+}
+
+func TestSelectFormSpaceTogglesWhileFiltering(t *testing.T) {
+	f, rows, selected, _ := newTestForm(t)
+	m := filterToggle{f}
+	press := func(msg tea.KeyMsg) { _, cmd := m.Update(msg); runCmds(f, cmd, 0) }
+	before := append([]int(nil), *selected...)
+	press(runes("/"))
+	for _, r := range "pr" {
+		press(runes(string(r)))
+	}
+	press(key(tea.KeySpace))
+	view := f.View()
+	if first := strings.TrimSpace(strings.SplitN(view, "\n", 2)[0]); !strings.HasSuffix(first, "/pr") {
+		t.Errorf("space was typed into the filter:\n%s", view)
+	}
+	if !strings.Contains(view, "review-pr") || strings.Contains(view, "old-tool") {
+		t.Errorf("filter lost after toggle:\n%s", view)
+	}
+	if reflect.DeepEqual(before, *selected) {
+		t.Fatalf("space did not toggle (selected=%v, rows=%d)", *selected, len(rows))
 	}
 }

@@ -285,7 +285,7 @@ func buildSelectForm(title string, rows []selectRow, notes []string, selected *[
 	for i, r := range rows {
 		opts[i] = huh.NewOption(r.Label, i)
 	}
-	desc := "space/x toggle · / filter · ctrl+a toggle shown · enter continue · ctrl+c abort"
+	desc := "space/x toggle · / filter (esc to finish) · ctrl+a toggle shown · enter continue · ctrl+c abort"
 	if len(notes) > 0 {
 		desc += "\n" + strings.Join(notes, "\n")
 	}
@@ -392,7 +392,7 @@ func runSkillSelect(s profile.Store, args []string, out io.Writer) error {
 
 	for {
 		ok := true
-		if err := buildSelectForm(title, rows, notes, &selected, &ok).WithOutput(os.Stderr).Run(); err != nil {
+		if err := runFilterToggle(buildSelectForm(title, rows, notes, &selected, &ok), os.Stderr); err != nil {
 			return abortErr(err, out)
 		}
 		plan, err := planChanges(rows, selected)
@@ -409,7 +409,8 @@ func runSkillSelect(s profile.Store, args []string, out io.Writer) error {
 		if err := preValidate(dir, plan); err != nil {
 			return fmt.Errorf("no changes made:\n%w", err)
 		}
-		return applyPlan(dir, a.Name(), profileName, plan, out)
+		applyErr := applyPlan(dir, a.Name(), profileName, plan, out)
+		return errors.Join(applyErr, syncSkillDirs(s, a, profileName))
 	}
 }
 

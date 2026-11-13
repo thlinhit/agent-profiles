@@ -11,7 +11,7 @@ import (
 
 const updateUsage = "usage: update <agent> <name> | update <agent> --all"
 
-// runUpdate refreshes tool-owned settings (such as the Claude status line) in
+// runUpdate refreshes ap-owned settings (such as the Claude status line) in
 // existing profiles. User-owned settings like permissions and env are kept.
 func runUpdate(s profile.Store, args []string, out io.Writer) error {
 	if len(args) != 3 {
@@ -40,11 +40,20 @@ func runUpdate(s profile.Store, args []string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("%s/%s: %w", a.Name(), name, err)
 		}
-		status := "unchanged"
 		if !bytes.Equal(current, next) {
 			if err := s.WriteSettings(a.Name(), name, next); err != nil {
 				return err
 			}
+		}
+		if err := syncSkillDirs(s, a, name); err != nil {
+			return fmt.Errorf("%s/%s: %w", a.Name(), name, err)
+		}
+		final, err := s.ReadSettings(a.Name(), name)
+		if err != nil {
+			return err
+		}
+		status := "unchanged"
+		if !bytes.Equal(current, final) {
 			status = "updated"
 		}
 		if _, err := fmt.Fprintf(out, "%s/%s: %s\n", a.Name(), name, status); err != nil {
