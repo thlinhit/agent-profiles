@@ -30,8 +30,11 @@ func runSkills(s profile.Store, args []string, out io.Writer) error {
 		}
 		return nil
 	}
+	if len(args) > 1 && args[1] == "select" {
+		return runSkillSelect(s, args[2:], out)
+	}
 	if len(args) < 4 {
-		return fmt.Errorf("usage: skills ls|add|rm <agent> <profile> [<skill>] [--name N], or skills ls --pool")
+		return fmt.Errorf("usage: skills ls|add|rm|select <agent> <profile> [<skill>] [--name N], or skills ls --pool")
 	}
 	a, err := agent.Get(args[2])
 	if err != nil {
@@ -66,50 +69,60 @@ func runSkills(s profile.Store, args []string, out io.Writer) error {
 		if len(args) == 7 {
 			name = args[6]
 		}
-		if err := profile.ValidateName(name); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return err
-		}
-		if err := checkSkillsDir(dir); err != nil {
-			return err
-		}
-		dest := filepath.Join(dir, name)
-		if _, err := os.Lstat(dest); err == nil {
-			return fmt.Errorf("skill %q already exists; run skills rm first", name)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		if err := os.Symlink(source, dest); err != nil {
-			if os.IsExist(err) {
-				return fmt.Errorf("skill %q already exists; run skills rm first", name)
-			}
-			return err
-		}
-		return nil
+		return addSkill(dir, source, name)
 	case "rm":
 		if len(args) != 5 {
 			return fmt.Errorf("usage: skills rm <agent> <profile> <skill>")
 		}
-		if err := profile.ValidateName(args[4]); err != nil {
-			return err
-		}
-		if err := checkSkillsDir(dir); err != nil {
-			return err
-		}
-		path := filepath.Join(dir, args[4])
-		st, err := os.Lstat(path)
-		if err != nil {
-			return err
-		}
-		if st.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("%s: not managed by ap, delete it yourself", path)
-		}
-		return os.Remove(path)
+		return removeSkill(dir, args[4])
 	default:
 		return fmt.Errorf("unknown skills command %q", args[1])
 	}
+}
+
+// addSkill links a canonical skill source into a profile skills directory.
+func addSkill(dir, source, name string) error {
+	if err := profile.ValidateName(name); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := checkSkillsDir(dir); err != nil {
+		return err
+	}
+	dest := filepath.Join(dir, name)
+	if _, err := os.Lstat(dest); err == nil {
+		return fmt.Errorf("skill %q already exists; run skills rm first", name)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Symlink(source, dest); err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("skill %q already exists; run skills rm first", name)
+		}
+		return err
+	}
+	return nil
+}
+
+// removeSkill deletes a skill entry only when it is a symlink managed by ap.
+func removeSkill(dir, name string) error {
+	if err := profile.ValidateName(name); err != nil {
+		return err
+	}
+	if err := checkSkillsDir(dir); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, name)
+	st, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if st.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%s: not managed by ap, delete it yourself", path)
+	}
+	return os.Remove(path)
 }
 
 // Skills directories may be created by the agent with non-private permissions.
@@ -201,13 +214,34 @@ func regularSkill(dir string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
+// poolSkill is a skill directory discovered in a configured pool.
+type poolSkill struct {
+	Path string
+	Pool string
+}
+
 func skillPools() ([]string, error) {
+	skills, err := scanPools(nil)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(skills))
+	for i, sk := range skills {
+		paths[i] = sk.Path
+	}
+	return paths, nil
+}
+
+// scanPools walks configured pools. With warn nil, any walk error fails the
+// scan; otherwise the failing pool is reported through warn and skipped.
+func scanPools(warn func(error)) ([]poolSkill, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	var paths []string
+	var skills []poolSkill
 	for _, pool := range cfg.SkillPools {
+		var found []poolSkill
 		err := filepath.WalkDir(pool, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -219,21 +253,28 @@ func skillPools() ([]string, error) {
 				return filepath.SkipDir
 			}
 			if regularSkill(path) {
-				paths = append(paths, path)
+				found = append(found, poolSkill{Path: path, Pool: pool})
 			}
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("walk skill pool %s: %w", pool, err)
+			err = fmt.Errorf("walk skill pool %s: %w", pool, err)
+			if warn == nil {
+				return nil, err
+			}
+			warn(err)
+			continue
 		}
+		skills = append(skills, found...)
 	}
-	sort.Slice(paths, func(i, j int) bool {
-		if filepath.Base(paths[i]) == filepath.Base(paths[j]) {
-			return paths[i] < paths[j]
+	sort.Slice(skills, func(i, j int) bool {
+		a, b := skills[i].Path, skills[j].Path
+		if filepath.Base(a) == filepath.Base(b) {
+			return a < b
 		}
-		return filepath.Base(paths[i]) < filepath.Base(paths[j])
+		return filepath.Base(a) < filepath.Base(b)
 	})
-	return paths, nil
+	return skills, nil
 }
 
 func skillSource(input string) (string, error) {

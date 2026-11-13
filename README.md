@@ -79,6 +79,7 @@ ap skills add pi work ~/my-repos/skills/code-review --name review
 ap skills ls claude work
 ap skills rm claude work code-review
 ap skills ls --pool
+ap skills select claude work           # interactive picker over pool skills
 ap skills add claude work code-review  # look up a bare name in configured pools
 ```
 
@@ -114,6 +115,25 @@ manually. A symlinked `skills/` directory is refused. Listings mark broken links
 and entries that are not links. Plugin skills are separate: manage them with
 `/plugin` inside the Claude profile.
 
+### Interactive picker
+
+`ap skills select [<agent> [<profile>]]` opens a checklist of every pool skill,
+with linked skills pre-ticked. Missing agent or profile arguments are prompted.
+Keys: space or x toggles, `/` filters by label, ctrl+a toggles all shown, enter
+continues, ctrl+c aborts. A confirm page shows the `+`/`-` diff; answering No
+returns to the list with selections kept.
+
+- Each row is one link, so aliases made with `--name` show as
+  `review → code-review (alias)`. External and broken links are listed and can
+  be unticked. Real directories are skipped with a note.
+- Two ticked skills with the same name are rejected before confirm.
+- Every add is validated before anything changes; then removes run before
+  adds, best effort, with one result line per skill and a non-zero exit on any
+  failure. A failed swap prints the command to restore the old link.
+- An unreadable pool is skipped with a warning instead of failing the picker.
+- Requires a terminal on stdin and stderr (the UI draws on stderr because the
+  `ap` shell function captures stdout); scripts should use `add`/`rm`.
+
 ## Shared Claude guardrails
 
 `ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
@@ -147,6 +167,7 @@ sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 | `skills ls <agent> <profile>` / `skills ls --pool` | List profile skills or available pool skills |
 | `skills add <agent> <profile> <path-or-name> [--name N]` | Link a skill into a profile |
 | `skills rm <agent> <profile> <skill>` | Remove only a skill symlink |
+| `skills select [<agent> [<profile>]]` | Pick pool skills for a profile interactively |
 | `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin]` | Create a profile; `--init` writes a starter config; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
 | `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes` |
 | `exec <agent> <name> [-- <cmd> [args...]]` | Run one command with a profile selected, leaving the current shell unchanged. Without `--` it runs the agent itself (`ap exec claude work` runs `claude`). Arguments are passed verbatim, never through a shell |
