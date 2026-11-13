@@ -12,6 +12,7 @@ type Agent interface {
 	EnvVar() string
 	DefaultConfigDir() (string, error)
 	InitTemplate() []byte
+	SkillsSubdir() string
 }
 
 // BaseURLSetter is implemented by agents whose settings can point at a
@@ -37,7 +38,7 @@ type SettingsUpdater interface {
 	UpdateSettings(current []byte) ([]byte, error)
 }
 
-func All()[]Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
+func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }
 func Get(name string) (Agent, error) {
 	for _, a := range All() {
 		if a.Name() == name {

@@ -35,11 +35,13 @@ func run(args []string, out, diagnostic io.Writer) error {
 		out = diagnostic
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create update delete exec local trust untrust")
+		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create update delete exec local trust untrust skills")
 		return err
 	}
 	s := profile.Store{}
 	switch args[0] {
+	case "skills":
+		return runSkills(s, args, out)
 	case "trust", "untrust":
 		return runTrust(args)
 	case "auto":

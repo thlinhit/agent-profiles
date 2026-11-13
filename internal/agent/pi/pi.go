@@ -7,6 +7,8 @@ import (
 
 type Adapter struct{}
 
+func (Adapter) SkillsSubdir() string { return "skills" }
+
 func (Adapter) Name() string   { return "pi" }
 func (Adapter) EnvVar() string { return "PI_CODING_AGENT_DIR" }
 func (Adapter) DefaultConfigDir() (string, error) {

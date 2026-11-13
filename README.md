@@ -69,6 +69,51 @@ From then on, entering the directory switches automatically (zsh on `chpwd`,
 bash before each prompt). If `.agent-profile` changes, run `ap trust` again.
 `ap untrust` revokes approval.
 
+## Skills
+
+Link skills into Claude or Pi profiles without copying them:
+
+```sh
+ap skills add claude work ~/my-repos/skills/code-review
+ap skills add pi work ~/my-repos/skills/code-review --name review
+ap skills ls claude work
+ap skills rm claude work code-review
+ap skills ls --pool
+ap skills add claude work code-review  # look up a bare name in configured pools
+```
+
+Manage pools with:
+
+```sh
+ap skills pool add ~/my-repos/AI-collaboration
+ap skills pool ls
+ap skills pool rm ~/my-repos/AI-collaboration
+```
+
+Add requires an existing directory and stores its absolute path. Adding the same
+pool again is a no-op. Removal accepts `~/` or absolute paths, even for missing
+pools. Pool listings mark paths that no longer exist with `(missing)`.
+
+You can also edit `$XDG_CONFIG_HOME/agent-profiles/config.toml`
+(default `~/.config/agent-profiles/config.toml`) directly:
+
+```toml
+skill_pools = ["~/my-repos/AI-collaboration"]
+```
+
+Pool lookup searches recursively, skipping `.git`, `node_modules`, and symlinked
+directories. Duplicate names require a full path. `ls --pool` lists available
+skills sorted by name.
+
+Sources must be directories containing a regular `SKILL.md`, outside profile
+storage and the temporary directory (`$TMPDIR` when set). Links use absolute,
+resolved source paths. Names use the source basename unless `--name` is given.
+Existing entries are never replaced: run `skills rm` first. Removal deletes
+only the symlink, never its target; real files and directories must be deleted
+manually. A symlinked `skills/` directory is refused. Listings mark broken links
+and entries that are not links. Plugin skills are separate: manage them with
+`/plugin` inside the Claude profile.
+
 ## Shared Claude guardrails
 
 `ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
@@ -99,6 +144,9 @@ sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 | `off <agent>` | Unset the agent's profile variable |
 | `current` | Show the active config dir per agent and its source (env, dotfile, default) |
 | `list [agent]` | List profiles |
+| `skills ls <agent> <profile>` / `skills ls --pool` | List profile skills or available pool skills |
+| `skills add <agent> <profile> <path-or-name> [--name N]` | Link a skill into a profile |
+| `skills rm <agent> <profile> <skill>` | Remove only a skill symlink |
 | `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin]` | Create a profile; `--init` writes a starter config; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
 | `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes` |
 | `exec <agent> <name> [-- <cmd> [args...]]` | Run one command with a profile selected, leaving the current shell unchanged. Without `--` it runs the agent itself (`ap exec claude work` runs `claude`). Arguments are passed verbatim, never through a shell |

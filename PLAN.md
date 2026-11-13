@@ -11,7 +11,7 @@ v1:
 - Agent: Claude Code only, behind an `Agent` adapter interface so other agents
   (Pi, Codex, Gemini) can be added without touching core code.
 - Platforms: macOS and Linux, zsh and bash.
-- Out of scope: Windows, PowerShell, cmd.exe, self-updater, skills sync.
+- Out of scope: Windows, PowerShell, cmd.exe, self-updater.
 
 ## Core constraint
 
@@ -47,6 +47,7 @@ type Agent interface {
     EnvVar() string                     // "CLAUDE_CONFIG_DIR"
     DefaultConfigDir() (string, error)  // e.g. ~/.claude
     InitTemplate() []byte               // optional settings.json skeleton
+    SkillsSubdir() string               // "skills"
 }
 ```
 
@@ -83,6 +84,30 @@ claude = "work"
 | `delete <agent> <name>` | Delete, with confirmation; never follow symlinks out of the profile dir |
 | `local <agent> <name>` | Write `.agent-profile` in cwd (safe write) |
 | `trust` / `untrust` | Approve or revoke the current directory's dotfile |
+
+## Skills
+
+`skills ls <agent> <profile>`, `skills ls --pool`,
+`skills add <agent> <profile> <path-or-name> [--name N]`, and
+`skills rm <agent> <profile> <skill>` support Claude and Pi through the adapter's
+`SkillsSubdir()` (both return `skills`). This is not a shell-emitting command.
+
+- Add always creates an absolute symlink to the resolved source directory,
+  which must contain a regular `SKILL.md` and be outside profile storage and
+  `os.TempDir()` / `$TMPDIR`. Names pass `profile.ValidateName`.
+- Create `skills/` privately (0700); refuse symlinked or non-directory
+  containers and existing destinations, directing the user to `skills rm`.
+- Remove only symlinks, without confirmation or `--yes`; never touch targets.
+  Real files/directories are not managed by ap and require manual deletion.
+- Listings show targets, broken links, and non-link entries. Never access
+  `plugins/`; Claude listings include the `/plugin` management footer.
+- Load `skill_pools` from `$XDG_CONFIG_HOME/agent-profiles/config.toml`, falling
+  back to `~/.config/agent-profiles/config.toml`; expand leading `~/`. A missing
+  config means no pools. Inputs containing a path separator or starting with
+  `.` or `~` are paths; otherwise search pools recursively by basename and
+  `SKILL.md`, skipping `.git`, `node_modules`, and symlinked directories.
+  No matches report pools searched; ambiguous matches list every path and
+  require a full path. Pool listings sort by name.
 
 ## Security requirements (from the upstream review, 2026-11-10)
 

@@ -10,6 +10,8 @@ import (
 
 type Adapter struct{}
 
+func (Adapter) SkillsSubdir() string { return "skills" }
+
 func (Adapter) Name() string   { return "claude" }
 func (Adapter) EnvVar() string { return "CLAUDE_CONFIG_DIR" }
 func (Adapter) DefaultConfigDir() (string, error) {
