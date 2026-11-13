@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
@@ -323,6 +324,9 @@ func runSkillSelect(s profile.Store, args []string, out io.Writer) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
 		return fmt.Errorf("skills select requires a terminal; use skills add/rm")
 	}
+	// lipgloss detects colors from stdout by default. stdout is a pipe here,
+	// so it would fall back to no colors; detect from stderr instead.
+	lipgloss.SetDefaultRenderer(lipgloss.NewRenderer(os.Stderr))
 	var agentName, profileName string
 	if len(args) > 0 {
 		agentName = args[0]
