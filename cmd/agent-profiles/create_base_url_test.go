@@ -49,6 +49,16 @@ func TestCreateBaseURL(t *testing.T) {
 	}
 }
 
+func TestCreateBaseURLFlagContext(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
+	var out bytes.Buffer
+	err := run([]string{"create", "claude", "work", "--base-url", "file:///etc/passwd"}, &out, &out)
+	want := `--base-url: invalid base URL "file:///etc/passwd": want http(s)://host[:port][/path]`
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v; want %q", err, want)
+	}
+}
+
 func TestCreateBaseURLRejected(t *testing.T) {
 	for name, args := range map[string][]string{
 		"missing value":     {"create", "claude", "work", "--base-url"},

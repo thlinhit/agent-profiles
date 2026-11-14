@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/fsutil"
 )
 
 func absolutePool(path string) (string, error) {
@@ -100,5 +100,5 @@ func UpdatePool(input string, add bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	return dotfile.AtomicWrite(path, data)
+	return fsutil.AtomicWrite(path, data)
 }

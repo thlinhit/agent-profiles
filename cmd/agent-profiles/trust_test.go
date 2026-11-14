@@ -44,9 +44,10 @@ func TestAutoSwitchRequiresPerDirectoryTrust(t *testing.T) {
 	if err != nil || !strings.Contains(out, "export CLAUDE_CONFIG_DIR=") || diag != "" {
 		t.Fatalf("trusted auto: %q %q %v", out, diag, err)
 	}
+	// The env var is unset here, so current reports the Default config dir even though the Dotfile is trusted.
 	out, _, err = call("current")
-	if err != nil || !strings.Contains(out, "dotfile") {
-		t.Fatalf("trusted current: %q %v", out, err)
+	if err != nil || !strings.Contains(out, "(default)") || strings.Contains(out, "dotfile") {
+		t.Fatalf("trusted current with env unset: %q %v", out, err)
 	}
 	if _, _, err = call("local", "claude", "personal"); err != nil {
 		t.Fatal(err)

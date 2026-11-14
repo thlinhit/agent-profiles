@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thlinhit/agent-profiles/internal/profile"
+	skill "github.com/thlinhit/agent-profiles/internal/skills"
 )
 
 func skillsFixture(t *testing.T) (string, string) {
@@ -174,7 +175,7 @@ func TestSkillsExistingPermissions(t *testing.T) {
 			t.Fatalf("skills permissions changed: %o", st.Mode().Perm())
 		}
 	}
-	if !regularSkill(source) {
+	if !skill.IsSkill(source) {
 		t.Fatal("source damaged")
 	}
 }
@@ -228,12 +229,32 @@ func TestSkillsRemove(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if !regularSkill(source) {
+			if !skill.IsSkill(source) {
 				t.Fatal("source damaged")
 			}
 		})
 	}
 }
+func TestSkillsListPreservesPartialOutputAndStatError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a-not-a-link"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loop := filepath.Join(dir, "z-loop")
+	if err := os.Symlink("z-loop", loop); err != nil {
+		t.Fatal(err)
+	}
+	_, wantErr := os.Stat(loop)
+	var out bytes.Buffer
+	err := listSkills(dir, &out)
+	if err == nil || wantErr == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("error = %v, want original stat error %v", err, wantErr)
+	}
+	if out.String() != "a-not-a-link (not a link)\n" {
+		t.Fatalf("partial output = %q", out.String())
+	}
+}
+
 func TestSkillsList(t *testing.T) {
 	dir, _ := skillsFixture(t)
 	skills := filepath.Join(dir, "skills")

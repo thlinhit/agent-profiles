@@ -2,20 +2,20 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
 	"github.com/thlinhit/agent-profiles/internal/profile"
+	"github.com/thlinhit/agent-profiles/internal/skills"
 )
-
-const updateUsage = "usage: update <agent> <name> | update <agent> --all"
 
 // runUpdate refreshes ap-owned settings (such as the Claude status line) in
 // existing profiles. User-owned settings like permissions and env are kept.
 func runUpdate(s profile.Store, args []string, out io.Writer) error {
 	if len(args) != 3 {
-		return fmt.Errorf(updateUsage)
+		return errors.New(commandUsage("update"))
 	}
 	a, err := agent.Get(args[1])
 	if err != nil {
@@ -32,7 +32,11 @@ func runUpdate(s profile.Store, args []string, out io.Writer) error {
 		}
 	}
 	for _, name := range names {
-		current, err := s.ReadSettings(a.Name(), name)
+		dir, err := s.Resolve(a.Name(), name)
+		if err != nil {
+			return err
+		}
+		current, err := profile.ReadSettings(dir, a.Name()+"/"+name)
 		if err != nil {
 			return err
 		}
@@ -40,17 +44,17 @@ func runUpdate(s profile.Store, args []string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("%s/%s: %w", a.Name(), name, err)
 		}
-		if !bytes.Equal(current, next) {
-			if err := s.WriteSettings(a.Name(), name, next); err != nil {
+		final, ledger, err := skills.PrepareDirs(a, dir, next)
+		if err != nil {
+			return fmt.Errorf("%s/%s: %w", a.Name(), name, err)
+		}
+		if !bytes.Equal(current, final) {
+			if err := profile.WriteSettings(dir, a.Name()+"/"+name, final); err != nil {
 				return err
 			}
 		}
-		if err := syncSkillDirs(s, a, name); err != nil {
+		if err := skills.WriteDirsLedger(dir, ledger); err != nil {
 			return fmt.Errorf("%s/%s: %w", a.Name(), name, err)
-		}
-		final, err := s.ReadSettings(a.Name(), name)
-		if err != nil {
-			return err
 		}
 		status := "unchanged"
 		if !bytes.Equal(current, final) {

@@ -42,11 +42,26 @@ func Init(name string) (string, error) {
     return $?
   fi
   _ap_code=$(command agent-profiles "$@" --emit-shell) || return $?
-  eval "$_ap_code"
+`
+	if name == "bash" {
+		shim += `  case "$1" in
+    local|trust|untrust) unset _ap_last_pwd ;;
+  esac
+`
+	}
+	shim += `  eval "$_ap_code"
 }
 _ap_auto() {
   local _ap_status=$? _ap_code
-  if _ap_code=$(command agent-profiles auto --emit-shell); then
+`
+	if name == "bash" {
+		shim += `  if [[ ${_ap_last_pwd-} == "$PWD" ]]; then
+    return "$_ap_status"
+  fi
+  _ap_last_pwd=$PWD
+`
+	}
+	shim += `  if _ap_code=$(command agent-profiles auto --emit-shell); then
     eval "$_ap_code"
   fi
   return "$_ap_status"
@@ -72,6 +87,7 @@ else
     *) PROMPT_COMMAND="_ap_auto${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
   esac
 fi
+unset _ap_last_pwd
 `
 	}
 	return shim + "_ap_auto\n", nil

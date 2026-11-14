@@ -12,6 +12,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+
+	"github.com/thlinhit/agent-profiles/internal/skills"
 )
 
 // selectFixture builds two pools and a claude/work profile with:
@@ -63,20 +65,20 @@ func selectFixture(t *testing.T) selectEnv {
 	return e
 }
 
-func loadRows(t *testing.T, e selectEnv) ([]selectRow, []string) {
+func loadRows(t *testing.T, e selectEnv) ([]skills.Row, []string) {
 	t.Helper()
-	pool, err := scanPools(nil)
+	pool, _, err := skills.ScanPools(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, skipped, err := buildRows(e.dir, pool)
+	rows, skipped, err := skills.BuildRows(e.dir, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return rows, skipped
 }
 
-func rowIndex(t *testing.T, rows []selectRow, label string) int {
+func rowIndex(t *testing.T, rows []skills.Row, label string) int {
 	t.Helper()
 	for i, r := range rows {
 		if strings.HasPrefix(r.Label, label) {
@@ -87,10 +89,10 @@ func rowIndex(t *testing.T, rows []selectRow, label string) int {
 	return -1
 }
 
-func linkedIndexes(rows []selectRow) []int {
+func linkedIndexes(rows []skills.Row) []int {
 	var out []int
 	for i, r := range rows {
-		if r.Linked {
+		if r.Linked() {
 			out = append(out, i)
 		}
 	}
@@ -107,158 +109,20 @@ func without(s []int, x int) []int {
 	return out
 }
 
-func TestSelectBuildRows(t *testing.T) {
-	e := selectFixture(t)
-	rows, skipped := loadRows(t, e)
-	var labels []string
-	for _, r := range rows {
-		labels = append(labels, fmt.Sprintf("%s linked=%v", r.Label, r.Linked))
-	}
-	got := strings.Join(labels, "\n")
-	for _, want := range []string{
-		"code-review  pool-a linked=true",
-		"code-review  pool-b  (name taken) linked=false",
-		"review → code-review  (alias) linked=true",
-		"old-tool  (external) linked=true",
-		"stale  (broken) linked=true",
-		"review-pr  pool-a linked=false",
-		"notes  pool-a  (name taken) linked=false",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing row %q in:\n%s", want, got)
-		}
-	}
-	if len(skipped) != 1 || skipped[0] != "notes" {
-		t.Errorf("skipped = %v", skipped)
-	}
-	seen := map[string]bool{}
-	for _, r := range rows {
-		if seen[r.Label] {
-			t.Errorf("duplicate label %q", r.Label)
-		}
-		seen[r.Label] = true
-	}
-}
-
-func TestSelectBuildRowsEdges(t *testing.T) {
-	t.Run("missing skills dir and empty pool", func(t *testing.T) {
-		profileDir, _ := skillsFixture(t)
-		rows, skipped, err := buildRows(filepath.Join(profileDir, "skills"), nil)
-		if err != nil || len(rows) != 0 || len(skipped) != 0 {
-			t.Fatalf("rows=%v skipped=%v err=%v", rows, skipped, err)
-		}
-	})
-	t.Run("relative and mixed pool paths match existing links", func(t *testing.T) {
-		e := selectFixture(t)
-		t.Chdir(filepath.Dir(e.poolA))
-		pool := []poolSkill{
-			{Path: filepath.Join("pool-a", "code-review"), Pool: "pool-a"},
-			{Path: filepath.Join(e.poolA, "code-review"), Pool: e.poolA},
-		}
-		rows, _, err := buildRows(e.dir, pool)
-		if err != nil {
-			t.Fatal(err)
-		}
-		count := 0
-		for _, r := range rows {
-			if r.Name == "code-review" {
-				count++
-				if !r.Linked || r.Kind != rowPool {
-					t.Errorf("code-review row = %+v, want linked pool row", r)
-				}
-			}
-		}
-		if count != 1 {
-			t.Errorf("code-review rows = %d, want 1: %+v", count, rows)
-		}
-	})
-	t.Run("unreadable pool is skipped with warning", func(t *testing.T) {
-		e := selectFixture(t)
-		if err := os.Chmod(e.poolB, 0); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { os.Chmod(e.poolB, 0o700) })
-		var warnings []string
-		pool, err := scanPools(func(err error) { warnings = append(warnings, err.Error()) })
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(warnings) != 1 || !strings.Contains(warnings[0], "pool-b") {
-			t.Fatalf("warnings = %v", warnings)
-		}
-		for _, sk := range pool {
-			if strings.HasPrefix(sk.Path, e.poolB) {
-				t.Fatalf("unreadable pool contributed %s", sk.Path)
-			}
-		}
-		if _, err := scanPools(nil); err == nil {
-			t.Fatal("strict scan should fail on unreadable pool")
-		}
-	})
-}
-
-func TestSelectPlanChanges(t *testing.T) {
-	e := selectFixture(t)
-	rows, _ := loadRows(t, e)
-	linked := linkedIndexes(rows)
-	crA := rowIndex(t, rows, "code-review  pool-a")
-	crB := rowIndex(t, rows, "code-review  pool-b")
-	alias := rowIndex(t, rows, "review →")
-	for _, tc := range []struct {
-		name     string
-		selected []int
-		removes  []string
-		adds     []string
-		err      string
-	}{
-		{name: "no-op", selected: linked},
-		{name: "swap pools", selected: append(without(linked, crA), crB), removes: []string{"code-review"}, adds: []string{"code-review"}},
-		{name: "both same name", selected: append(linked, crB), err: "two skills named code-review"},
-		{name: "drop alias only", selected: without(linked, alias), removes: []string{"review"}},
-		{name: "clear all", selected: nil, removes: []string{"code-review", "old-tool", "review", "stale"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			plan, err := planChanges(rows, tc.selected)
-			if tc.err != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.err) {
-					t.Fatalf("err = %v, want %q", err, tc.err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			names := func(rs []selectRow) []string {
-				var out []string
-				for _, r := range rs {
-					out = append(out, r.Name)
-				}
-				return out
-			}
-			if fmt.Sprint(names(plan.Removes)) != fmt.Sprint(tc.removes) && !(len(plan.Removes) == 0 && tc.removes == nil) {
-				t.Errorf("removes = %v, want %v", names(plan.Removes), tc.removes)
-			}
-			if fmt.Sprint(names(plan.Adds)) != fmt.Sprint(tc.adds) && !(len(plan.Adds) == 0 && tc.adds == nil) {
-				t.Errorf("adds = %v, want %v", names(plan.Adds), tc.adds)
-			}
-		})
-	}
-}
-
 func TestSelectApply(t *testing.T) {
 	t.Run("swap keeps alias and relinks", func(t *testing.T) {
 		e := selectFixture(t)
 		rows, _ := loadRows(t, e)
 		sel := append(without(linkedIndexes(rows), rowIndex(t, rows, "code-review  pool-a")), rowIndex(t, rows, "code-review  pool-b"))
-		plan, err := planChanges(rows, sel)
+		plan, err := skills.PlanChanges(rows, sel)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := preValidate(e.dir, plan); err != nil {
+		if err := skills.PreValidate(e.dir, plan, skills.NewSource()); err != nil {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := applyPlan(e.dir, "claude", "work", plan, &out); err != nil {
+		if err := applyPlan(e.dir, "claude", "work", plan, &out, skills.NewSource()); err != nil {
 			t.Fatalf("%v\n%s", err, out.String())
 		}
 		got, _ := filepath.EvalSymlinks(filepath.Join(e.dir, "code-review"))
@@ -276,11 +140,11 @@ func TestSelectApply(t *testing.T) {
 	t.Run("prevalidate rejects collision with real dir", func(t *testing.T) {
 		e := selectFixture(t)
 		rows, _ := loadRows(t, e)
-		plan, err := planChanges(rows, append(linkedIndexes(rows), rowIndex(t, rows, "notes  pool-a")))
+		plan, err := skills.PlanChanges(rows, append(linkedIndexes(rows), rowIndex(t, rows, "notes  pool-a")))
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = preValidate(e.dir, plan)
+		err = skills.PreValidate(e.dir, plan, skills.NewSource())
 		if err == nil || !strings.Contains(err.Error(), "+ notes") {
 			t.Fatalf("err = %v", err)
 		}
@@ -288,14 +152,14 @@ func TestSelectApply(t *testing.T) {
 	t.Run("prevalidate rejects vanished source", func(t *testing.T) {
 		e := selectFixture(t)
 		rows, _ := loadRows(t, e)
-		plan, err := planChanges(rows, append(linkedIndexes(rows), rowIndex(t, rows, "review-pr")))
+		plan, err := skills.PlanChanges(rows, append(linkedIndexes(rows), rowIndex(t, rows, "review-pr")))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := os.RemoveAll(filepath.Join(e.poolA, "review-pr")); err != nil {
 			t.Fatal(err)
 		}
-		if err := preValidate(e.dir, plan); err == nil {
+		if err := skills.PreValidate(e.dir, plan, skills.NewSource()); err == nil {
 			t.Fatal("want error for vanished source")
 		}
 	})
@@ -304,7 +168,7 @@ func TestSelectApply(t *testing.T) {
 		rows, _ := loadRows(t, e)
 		sel := without(linkedIndexes(rows), rowIndex(t, rows, "old-tool"))
 		sel = append(sel, rowIndex(t, rows, "review-pr"))
-		plan, err := planChanges(rows, sel)
+		plan, err := skills.PlanChanges(rows, sel)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -316,7 +180,7 @@ func TestSelectApply(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		err = applyPlan(e.dir, "claude", "work", plan, &out)
+		err = applyPlan(e.dir, "claude", "work", plan, &out, skills.NewSource())
 		if err == nil {
 			t.Fatal("want error")
 		}
@@ -330,7 +194,7 @@ func TestSelectApply(t *testing.T) {
 	t.Run("link replaced while open is left untouched", func(t *testing.T) {
 		e := selectFixture(t)
 		rows, _ := loadRows(t, e)
-		plan, err := planChanges(rows, without(linkedIndexes(rows), rowIndex(t, rows, "old-tool")))
+		plan, err := skills.PlanChanges(rows, without(linkedIndexes(rows), rowIndex(t, rows, "old-tool")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,7 +207,7 @@ func TestSelectApply(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := applyPlan(e.dir, "claude", "work", plan, &out); err == nil {
+		if err := applyPlan(e.dir, "claude", "work", plan, &out, skills.NewSource()); err == nil {
 			t.Fatal("want error")
 		}
 		if got, _ := os.Readlink(link); got != replacement {
@@ -357,7 +221,7 @@ func TestSelectApply(t *testing.T) {
 		e := selectFixture(t)
 		rows, _ := loadRows(t, e)
 		sel := append(without(linkedIndexes(rows), rowIndex(t, rows, "code-review  pool-a")), rowIndex(t, rows, "code-review  pool-b"))
-		plan, err := planChanges(rows, sel)
+		plan, err := skills.PlanChanges(rows, sel)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -365,11 +229,11 @@ func TestSelectApply(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := applyPlan(e.dir, "claude", "work", plan, &out); err == nil {
+		if err := applyPlan(e.dir, "claude", "work", plan, &out, skills.NewSource()); err == nil {
 			t.Fatal("want error")
 		}
 		oldSource, _ := filepath.EvalSymlinks(filepath.Join(e.poolA, "code-review"))
-		if !strings.Contains(out.String(), "restore with: ap skills add claude work "+oldSource+" --name code-review") {
+		if !strings.Contains(out.String(), "restore with: ap skills add 'claude' 'work' '"+oldSource+"' --name 'code-review'") {
 			t.Errorf("report:\n%s", out.String())
 		}
 	})
@@ -418,7 +282,7 @@ func runCmds(f *huh.Form, cmd tea.Cmd, depth int) {
 func key(k tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: k} }
 func runes(s string) tea.KeyMsg    { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
 
-func newTestForm(t *testing.T) (*huh.Form, []selectRow, *[]int, *bool) {
+func newTestForm(t *testing.T) (*huh.Form, []skills.Row, *[]int, *bool) {
 	t.Helper()
 	e := selectFixture(t)
 	rows, _ := loadRows(t, e)
@@ -437,7 +301,7 @@ func TestSelectFormToggleAndConfirm(t *testing.T) {
 	if f.State != huh.StateNormal {
 		t.Fatalf("state after list = %v", f.State)
 	}
-	plan, err := planChanges(rows, *selected)
+	plan, err := skills.PlanChanges(rows, *selected)
 	if err != nil {
 		t.Fatal(err)
 	}

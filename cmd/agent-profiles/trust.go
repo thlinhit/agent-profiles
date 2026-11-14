@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,7 +11,7 @@ import (
 
 func runTrust(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: %s", args[0])
+		return errors.New(commandUsage(args[0]))
 	}
 	dir, err := os.Getwd()
 	if err != nil {

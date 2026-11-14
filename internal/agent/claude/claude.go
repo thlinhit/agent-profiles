@@ -12,7 +12,12 @@ type Adapter struct{}
 
 func (Adapter) SkillsSubdir() string { return "skills" }
 
+func (Adapter) PluginSkillsHint() string {
+	return "(plugin skills: manage with /plugin inside this profile)"
+}
+
 func (Adapter) Name() string   { return "claude" }
+func (Adapter) Binary() string { return "claude" }
 func (Adapter) EnvVar() string { return "CLAUDE_CONFIG_DIR" }
 func (Adapter) DefaultConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -87,7 +92,36 @@ var initTemplate = func() string {
 	return string(out) + "\n"
 }()
 
+var statusLine = func() json.RawMessage {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(initTemplate), &settings); err != nil {
+		panic(err)
+	}
+	return settings["statusLine"]
+}()
+
 func (Adapter) InitTemplate() []byte { return []byte(initTemplate) }
+
+func parseSettings(current []byte) (map[string]json.RawMessage, error) {
+	settings := map[string]json.RawMessage{}
+	if len(current) > 0 {
+		if err := json.Unmarshal(current, &settings); err != nil {
+			return nil, fmt.Errorf("parse settings: %w", err)
+		}
+		if settings == nil {
+			return nil, fmt.Errorf("parse settings: not a JSON object")
+		}
+	}
+	return settings, nil
+}
+
+func marshalSettings(v any) ([]byte, error) {
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
+}
 
 // WithBaseURL sets env.ANTHROPIC_BASE_URL in the settings template. Only
 // http(s) URLs with a host and no embedded credentials, query or fragment
@@ -95,16 +129,18 @@ func (Adapter) InitTemplate() []byte { return []byte(initTemplate) }
 func (Adapter) WithBaseURL(template []byte, baseURL string) ([]byte, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid --base-url: %w", err)
+		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, fmt.Errorf("invalid --base-url %q: want http(s)://host[:port][/path]", baseURL)
+		return nil, fmt.Errorf("invalid base URL %q: want http(s)://host[:port][/path]", baseURL)
 	}
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return nil, fmt.Errorf("invalid --base-url %q: credentials, query and fragment are not allowed", baseURL)
+		return nil, fmt.Errorf("invalid base URL %q: credentials, query and fragment are not allowed", baseURL)
 	}
 	return setEnv(template, "ANTHROPIC_BASE_URL", baseURL)
 }
+
+func (Adapter) AuthTokenLabel() string { return "ANTHROPIC_AUTH_TOKEN" }
 
 // WithAuthToken sets env.ANTHROPIC_AUTH_TOKEN in the settings template.
 func (Adapter) WithAuthToken(template []byte, token string) ([]byte, error) {
@@ -122,25 +158,12 @@ func (Adapter) WithAuthToken(template []byte, token string) ([]byte, error) {
 // UpdateSettings replaces statusLine with the one from the init template.
 // permissions and env are seeded once and belong to the user afterwards.
 func (Adapter) UpdateSettings(current []byte) ([]byte, error) {
-	var tmpl map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(initTemplate), &tmpl); err != nil {
-		return nil, err
-	}
-	settings := map[string]json.RawMessage{}
-	if len(current) > 0 {
-		if err := json.Unmarshal(current, &settings); err != nil {
-			return nil, fmt.Errorf("parse settings: %w", err)
-		}
-		if settings == nil {
-			return nil, fmt.Errorf("parse settings: not a JSON object")
-		}
-	}
-	settings["statusLine"] = tmpl["statusLine"]
-	out, err := json.MarshalIndent(settings, "", "  ")
+	settings, err := parseSettings(current)
 	if err != nil {
 		return nil, err
 	}
-	return append(out, '\n'), nil
+	settings["statusLine"] = statusLine
+	return marshalSettings(settings)
 }
 
 func setEnv(template []byte, key, value string) ([]byte, error) {
@@ -156,24 +179,15 @@ func setEnv(template []byte, key, value string) ([]byte, error) {
 	}
 	env[key] = value
 	settings["env"] = env
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(out, '\n'), nil
+	return marshalSettings(settings)
 }
 
 // SetSkillDirs reconciles permissions.additionalDirectories with the resolved
 // skill targets. Entries ap did not add (not in prev) are never removed.
 func (Adapter) SetSkillDirs(current []byte, prev, next []string) ([]byte, error) {
-	settings := map[string]json.RawMessage{}
-	if len(current) > 0 {
-		if err := json.Unmarshal(current, &settings); err != nil {
-			return nil, fmt.Errorf("parse settings: %w", err)
-		}
-		if settings == nil {
-			return nil, fmt.Errorf("parse settings: not a JSON object")
-		}
+	settings, err := parseSettings(current)
+	if err != nil {
+		return nil, err
 	}
 	perms := map[string]json.RawMessage{}
 	if raw, ok := settings["permissions"]; ok {
@@ -230,9 +244,5 @@ func (Adapter) SetSkillDirs(current []byte, prev, next []string) ([]byte, error)
 		}
 		settings["permissions"] = raw
 	}
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(out, '\n'), nil
+	return marshalSettings(settings)
 }

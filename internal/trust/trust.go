@@ -4,13 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"syscall"
 
 	"github.com/thlinhit/agent-profiles/internal/dotfile"
+	"github.com/thlinhit/agent-profiles/internal/fsutil"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
@@ -36,12 +37,12 @@ func read(root *os.Root) (map[string]string, error) {
 	if !st.Mode().IsRegular() || st.Mode().Perm() != 0o600 {
 		return nil, fmt.Errorf("trust.json must be a regular private file (0600)")
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxDatabase+1))
+	data, err := fsutil.ReadLimited(f, maxDatabase)
+	if errors.Is(err, fsutil.ErrTooLarge) {
+		return nil, fmt.Errorf("trust database exceeds 1 MiB")
+	}
 	if err != nil {
 		return nil, err
-	}
-	if len(data) > maxDatabase {
-		return nil, fmt.Errorf("trust database exceeds 1 MiB")
 	}
 	if err = json.Unmarshal(data, &entries); err != nil {
 		return nil, err
@@ -114,7 +115,7 @@ func update(change func(map[string]string)) error {
 	if len(data) > maxDatabase {
 		return fmt.Errorf("trust database exceeds 1 MiB")
 	}
-	return dotfile.AtomicWrite(filepath.Join(dir, "trust.json"), append(data, '\n'))
+	return fsutil.AtomicWrite(filepath.Join(dir, "trust.json"), append(data, '\n'))
 }
 func (Store) Grant(doc *dotfile.Document) error {
 	return update(func(entries map[string]string) { entries[doc.Dir] = digest(doc.Content) })

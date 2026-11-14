@@ -3,12 +3,13 @@ package profile
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+
+	"github.com/thlinhit/agent-profiles/internal/fsutil"
 )
 
 var validName = regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
@@ -141,6 +142,12 @@ func (s Store) ReadSettings(agent, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ReadSettings(dir, agent+"/"+name)
+}
+
+// ReadSettings reads settings in an already resolved profile directory.
+// label is the agent/profile name used in errors.
+func ReadSettings(dir, label string) ([]byte, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
@@ -154,22 +161,22 @@ func (s Store) ReadSettings(agent, name string) ([]byte, error) {
 		return nil, err
 	}
 	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("settings.json of %q is not a regular file", agent+"/"+name)
+		return nil, fmt.Errorf("settings.json of %q is not a regular file", label)
 	}
 	if st.Size() > maxSettingsSize {
-		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", agent+"/"+name, maxSettingsSize)
+		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", label, maxSettingsSize)
 	}
 	f, err := root.Open("settings.json")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxSettingsSize+1))
+	data, err := fsutil.ReadLimited(f, maxSettingsSize)
+	if errors.Is(err, fsutil.ErrTooLarge) {
+		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", label, maxSettingsSize)
+	}
 	if err != nil {
 		return nil, err
-	}
-	if len(data) > maxSettingsSize {
-		return nil, fmt.Errorf("settings.json of %q is larger than %d bytes", agent+"/"+name, maxSettingsSize)
 	}
 	return data, nil
 }
@@ -182,31 +189,21 @@ func (s Store) WriteSettings(agent, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	return WriteSettings(dir, agent+"/"+name, data)
+}
+
+// WriteSettings atomically writes settings in an already resolved profile directory.
+// label is the agent/profile name used in errors.
+func WriteSettings(dir, label string, data []byte) error {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
 	if st, err := root.Lstat("settings.json"); err == nil && !st.Mode().IsRegular() {
-		return fmt.Errorf("settings.json of %q is not a regular file", agent+"/"+name)
+		return fmt.Errorf("settings.json of %q is not a regular file", label)
 	}
-	const tmp = ".settings.json.tmp"
-	_ = root.Remove(tmp)
-	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if ce := f.Close(); err == nil {
-		err = ce
-	}
-	if err == nil {
-		err = root.Rename(tmp, "settings.json")
-	}
-	if err != nil {
-		_ = root.Remove(tmp)
-	}
-	return err
+	return fsutil.AtomicWriteRoot(root, "settings.json", data)
 }
 
 func (s Store) List(agent string) ([]string, error) {

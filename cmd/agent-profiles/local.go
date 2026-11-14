@@ -1,23 +1,19 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"os"
 
-	"github.com/thlinhit/agent-profiles/internal/agent"
 	"github.com/thlinhit/agent-profiles/internal/dotfile"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 func runLocal(s profile.Store, args []string) error {
 	if len(args) != 3 {
-		return fmt.Errorf("usage: local <agent> <name>")
+		return errors.New(commandUsage("local"))
 	}
-	a, err := agent.Get(args[1])
+	a, _, err := resolveProfile(s, args[1], args[2])
 	if err != nil {
-		return err
-	}
-	if _, err = s.Resolve(a.Name(), args[2]); err != nil {
 		return err
 	}
 	dir, err := os.Getwd()

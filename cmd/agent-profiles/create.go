@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,8 +14,6 @@ import (
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
-const createUsage = "usage: create <agent> <name> [--init | --from <profile>] [--base-url <url>] [--auth-token-stdin]"
-
 // maxTokenSize caps how much is read from stdin for --auth-token-stdin.
 const maxTokenSize = 4096
 
@@ -23,7 +22,7 @@ var tokenInput = os.Stdin
 
 func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error {
 	if len(args) < 3 {
-		return fmt.Errorf(createUsage)
+		return errors.New(commandUsage("create"))
 	}
 	a, err := agent.Get(args[1])
 	if err != nil {
@@ -31,31 +30,24 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 	}
 	var initTemplate, tokenFromStdin bool
 	var baseURL, from string
+	seen := map[string]bool{}
 	for i := 3; i < len(args); i++ {
+		if seen[args[i]] {
+			return fmt.Errorf("duplicate option %q", args[i])
+		}
+		seen[args[i]] = true
 		switch args[i] {
 		case "--init":
-			if initTemplate {
-				return fmt.Errorf("duplicate option %q", args[i])
-			}
 			initTemplate = true
 		case "--auth-token-stdin":
-			if tokenFromStdin {
-				return fmt.Errorf("duplicate option %q", args[i])
-			}
 			tokenFromStdin = true
 		case "--from":
-			if from != "" {
-				return fmt.Errorf("duplicate option %q", args[i])
-			}
 			if i+1 >= len(args) || args[i+1] == "" {
 				return fmt.Errorf("--from requires a profile name")
 			}
 			i++
 			from = args[i]
 		case "--base-url":
-			if baseURL != "" {
-				return fmt.Errorf("duplicate option %q", args[i])
-			}
 			if i+1 >= len(args) || args[i+1] == "" {
 				return fmt.Errorf("--base-url requires a value")
 			}
@@ -100,11 +92,11 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 			return fmt.Errorf("agent %q does not support --base-url", a.Name())
 		}
 		if template, err = b.WithBaseURL(template, baseURL); err != nil {
-			return err
+			return fmt.Errorf("--base-url: %w", err)
 		}
 	}
 	if tokenFromStdin {
-		token, err := readToken(tokenInput, diagnostic)
+		token, err := readToken(tokenInput, diagnostic, tokenSetter.AuthTokenLabel())
 		if err != nil {
 			return err
 		}
@@ -122,9 +114,9 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 
 // readToken prompts without echo on a terminal, otherwise reads one line
 // from piped input. The token never appears in argv or shell history.
-func readToken(input *os.File, diagnostic io.Writer) (string, error) {
+func readToken(input *os.File, diagnostic io.Writer, label string) (string, error) {
 	if term.IsTerminal(int(input.Fd())) {
-		if _, err := fmt.Fprint(diagnostic, "ANTHROPIC_AUTH_TOKEN: "); err != nil {
+		if _, err := fmt.Fprint(diagnostic, label+": "); err != nil {
 			return "", err
 		}
 		b, err := term.ReadPassword(int(input.Fd()))

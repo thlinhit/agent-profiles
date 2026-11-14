@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strings"
 
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
+
+var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -31,48 +35,61 @@ func run(args []string, out, diagnostic io.Writer) error {
 		}
 	}
 	args = filtered
-	if emit && (len(args) == 0 || !emitsShell(args[0])) {
+	if emit && (len(args) == 0 || !emitsShell(args[0]) || commandHelpIndex(args) >= 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
 		out = diagnostic
 	}
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		_, err := fmt.Fprintln(out, "agent-profiles: init use off current list create update delete exec local trust untrust skills")
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		return printTopHelp(out)
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			return printTopHelp(out)
+		}
+		return printCommandHelp(out, args[1:])
+	}
+	if args[0] == "--version" || args[0] == "version" {
+		_, err := fmt.Fprintf(out, "ap %s\n", effectiveVersion())
 		return err
 	}
-	s := profile.Store{}
-	switch args[0] {
-	case "skills":
-		return runSkills(s, args, out)
-	case "trust", "untrust":
-		return runTrust(args)
-	case "auto":
-		return runAuto(args, out, diagnostic)
-	case "local":
-		return runLocal(s, args)
-	case "init":
-		return runInit(args, out)
-	case "use", "off":
-		return runUse(s, args, out)
-	case "current":
-		return runCurrent(args, out, diagnostic)
-	case "list":
-		return runList(s, args, out)
-	case "create":
-		return runCreate(s, args, out, diagnostic)
-	case "delete":
-		return runDelete(s, args, diagnostic)
-	case "update":
-		return runUpdate(s, args, out)
-	case "exec":
-		return runExec(s, args)
+	if helpIndex := commandHelpIndex(args); helpIndex >= 0 {
+		return printCommandHelp(out, args[:helpIndex])
 	}
-	return fmt.Errorf("unknown command %q", args[0])
+	s := profile.Store{}
+	for _, cmd := range commandRegistry {
+		if cmd.name == args[0] {
+			return cmd.run(s, args, out, diagnostic)
+		}
+	}
+	return unknownCommand(args[0])
 }
 
-// emitsShell reports whether a command writes shell code to stdout for eval.
-func emitsShell(cmd string) bool {
-	switch cmd {
-	case "init", "use", "off", "auto":
-		return true
+func effectiveVersion() string {
+	if version != "dev" {
+		return version
 	}
-	return false
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
 }
+
+func commandHelpIndex(args []string) int {
+	if len(args) < 2 {
+		return -1
+	}
+	stop := len(args)
+	for i, arg := range args {
+		if arg == "--" {
+			stop = i
+			break
+		}
+	}
+	for i := 1; i < stop; i++ {
+		if args[i] == "--help" || args[i] == "-h" {
+			return i
+		}
+	}
+	return -1
+}
+
+func emitsShell(cmd string) bool { return strings.Contains(" init use off auto ", " "+cmd+" ") }

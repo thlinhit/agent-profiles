@@ -66,7 +66,10 @@ ap trust               # trust it; required before it takes effect
 ```
 
 From then on, entering the directory switches automatically (zsh on `chpwd`,
-bash before each prompt). If `.agent-profile` changes, run `ap trust` again.
+bash before the next prompt only when `$PWD` changes). Both run once at shell
+initialization. In bash, `ap local`, `ap trust` and `ap untrust` also refresh the
+selection at the next prompt; `ap auto` refreshes it explicitly without changing
+directories. If `.agent-profile` changes, run `ap trust` again.
 `ap untrust` revokes approval.
 
 ## Skills
@@ -159,20 +162,22 @@ sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 
 | Command | Description |
 | --- | --- |
-| `init zsh\|bash` | Print the shell function and auto-switch hook |
-| `use <agent> <name>` | Activate a profile in the current shell |
-| `off <agent>` | Unset the agent's profile variable |
-| `current` | Show the active config dir per agent and its source (env, dotfile, default) |
-| `list [agent]` | List profiles |
-| `skills ls <agent> <profile>` / `skills ls --pool` | List profile skills or available pool skills |
-| `skills add <agent> <profile> <path-or-name> [--name N]` | Link a skill into a profile |
-| `skills rm <agent> <profile> <skill>` | Remove only a skill symlink |
-| `skills select [<agent> [<profile>]]` | Pick pool skills for a profile interactively |
 | `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin]` | Create a profile; `--init` writes a starter config; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
-| `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes` |
+| `list [agent] [--json]` | List profiles; JSON output includes agent, profile, and path |
+| `update <agent> <name> \| --all` | Refresh ap-owned settings in one or all profiles |
+| `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes`, which is required without terminal stdin |
+| `use <agent> <name>` | Activate a profile in the current shell |
+| `off <agent>` | Deactivate a profile in the current shell |
+| `current [--json]` | Show the Active profile per Agent and its Source (env, dotfile, default) |
 | `exec <agent> <name> [-- <cmd> [args...]]` | Run one command with a profile selected, leaving the current shell unchanged. Without `--` it runs the agent itself (`ap exec claude work` runs `claude`). Arguments are passed verbatim, never through a shell |
-| `local <agent> <name>` | Write the selection to `.agent-profile` in the current directory |
+| `local <agent> <name>` | Write the Selection to `.agent-profile` in the current directory |
 | `trust` / `untrust` | Trust or untrust the current directory's `.agent-profile` |
+| `skills ls <agent> <profile> [--json]` / `skills ls --pool [--json]` | List profile skills or available pool skills |
+| `skills add <agent> <profile> <path-or-name> [--name N]` | Link a Skill into a profile |
+| `skills rm <agent> <profile> <skill>` | Remove only a Skill link |
+| `skills select [<agent> [<profile>]]` | Interactively choose pool Skills; prompts in a terminal, use `ap skills add/rm` instead without one |
+| `skills pool add <path>` / `skills pool rm <path>` / `skills pool ls [--json]` | Manage and list Skill pools |
+| `init zsh\|bash` | Print the shell function and Auto-switch hook |
 
 Profiles live in `$XDG_DATA_HOME/agent-profiles/<agent>/<name>`
 (default `~/.local/share/agent-profiles/<agent>/<name>`).
@@ -202,8 +207,10 @@ missing dotfile. Existing environment values therefore stay in place when
 leaving a trusted directory or entering an untrusted one. Use `ap off <agent>`
 to clear them.
 
-**`current`** reports, in order of precedence: the environment variable, a
-trusted dotfile selection, then the agent's default directory.
+**`current`** reports the environment variable when it is set, with source
+`dotfile` if it equals the trusted Selection's path (after cleaning) and `env`
+otherwise. When the variable is unset it reports the Default config dir with
+source `default`, even if a trusted Dotfile exists in the directory.
 
 **`local` and `trust`.** `local` requires an existing profile and merges with
 existing entries in the dotfile. `trust` applies only to a dotfile in the current
@@ -236,6 +243,13 @@ written with atomic replacement and an advisory lock.
 | Dotfile reading | `TestDotfileReading`, `FuzzParse` |
 
 ## Development
+
+The `ap` version defaults to `dev`. To set it at build time, pass the `main.version`
+variable through `-ldflags`:
+
+```sh
+go build -ldflags "-X main.version=1.2.3" ./cmd/agent-profiles
+```
 
 ```sh
 go test ./...

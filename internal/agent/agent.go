@@ -9,10 +9,16 @@ import (
 
 type Agent interface {
 	Name() string
+	Binary() string
 	EnvVar() string
 	DefaultConfigDir() (string, error)
 	InitTemplate() []byte
 	SkillsSubdir() string
+}
+
+// PluginSkillsHinter is implemented by Agents with their own Plugin skill management.
+type PluginSkillsHinter interface {
+	PluginSkillsHint() string
 }
 
 // BaseURLSetter is implemented by agents whose settings can point at a
@@ -26,6 +32,7 @@ type BaseURLSetter interface {
 // AuthTokenSetter is implemented by agents whose settings can carry an API
 // auth token (for example for a local proxy).
 type AuthTokenSetter interface {
+	AuthTokenLabel() string
 	WithAuthToken(template []byte, token string) ([]byte, error)
 }
 

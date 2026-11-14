@@ -1,17 +1,14 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 	"syscall"
 
-	"github.com/thlinhit/agent-profiles/internal/agent"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
-
-const execUsage = "usage: exec <agent> <name> [-- <command> [args...]]"
 
 // execve replaces the current process; tests swap it out.
 var execve = syscall.Exec
@@ -19,20 +16,16 @@ var execve = syscall.Exec
 // runExec runs a command with one agent profile selected, without touching
 // the calling shell. The command and its arguments are passed to execve
 // verbatim, never through a shell. Without "--" it runs the agent itself,
-// whose binary shares the agent's name (claude, pi).
+// using the binary supplied by its Adapter.
 func runExec(s profile.Store, args []string) error {
 	if len(args) != 3 && (len(args) < 5 || args[3] != "--") {
-		return fmt.Errorf(execUsage)
+		return errors.New(commandUsage("exec"))
 	}
-	a, err := agent.Get(args[1])
+	a, dir, err := resolveProfile(s, args[1], args[2])
 	if err != nil {
 		return err
 	}
-	dir, err := s.Resolve(a.Name(), args[2])
-	if err != nil {
-		return err
-	}
-	argv := []string{a.Name()}
+	argv := []string{a.Binary()}
 	if len(args) > 3 {
 		argv = args[4:]
 	}

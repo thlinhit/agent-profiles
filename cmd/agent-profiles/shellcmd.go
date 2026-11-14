@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"strings"
 
@@ -14,7 +14,7 @@ import (
 
 func runInit(args []string, out io.Writer) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: init zsh|bash")
+		return errors.New(commandUsage("init"))
 	}
 	code, err := shell.Init(args[1])
 	if err != nil {
@@ -26,7 +26,7 @@ func runInit(args []string, out io.Writer) error {
 
 func runAuto(args []string, out, diagnostic io.Writer) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: auto")
+		return errors.New(commandUsage("auto"))
 	}
 	paths, err := selections(diagnostic)
 	if err != nil {
@@ -52,21 +52,22 @@ func runUse(s profile.Store, args []string, out io.Writer) error {
 		want = 2
 	}
 	if len(args) != want {
-		return fmt.Errorf("usage: %s <agent> [name]", args[0])
-	}
-	a, err := agent.Get(args[1])
-	if err != nil {
-		return err
+		return errors.New(commandUsage(args[0]))
 	}
 	var code string
+	var err error
 	if args[0] == "off" {
+		a, getErr := agent.Get(args[1])
+		if getErr != nil {
+			return getErr
+		}
 		code, err = shell.Unset(a.EnvVar())
 	} else {
-		var p string
-		p, err = s.Resolve(a.Name(), args[2])
-		if err == nil {
-			code, err = shell.Export(a.EnvVar(), p)
+		a, p, resolveErr := resolveProfile(s, args[1], args[2])
+		if resolveErr != nil {
+			return resolveErr
 		}
+		code, err = shell.Export(a.EnvVar(), p)
 	}
 	if err != nil {
 		return err

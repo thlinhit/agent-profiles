@@ -43,6 +43,41 @@ printf '%s\000' "$CLAUDE_CONFIG_DIR"
 ap off claude || exit 6
 printf '%s' "${CLAUDE_CONFIG_DIR-unset}"
 `
+		if sh == "bash" {
+			script += `
+mkdir "$HOME/repo" || exit 10
+cd "$HOME/repo" || exit 11
+unset CLAUDE_CONFIG_DIR
+ap local claude work || exit 12
+_ap_auto
+[[ ${CLAUDE_CONFIG_DIR-unset} == unset ]] || exit 13
+ap trust || exit 14
+_ap_auto
+[[ $CLAUDE_CONFIG_DIR == *'/claude/work' ]] || exit 15
+unset CLAUDE_CONFIG_DIR
+false
+_ap_auto
+[[ $? == 1 && ${CLAUDE_CONFIG_DIR-unset} == unset ]] || exit 16
+ap auto || exit 17
+[[ $CLAUDE_CONFIG_DIR == *'/claude/work' ]] || exit 18
+unset CLAUDE_CONFIG_DIR
+eval "$(agent-profiles auto --emit-shell)"
+[[ $CLAUDE_CONFIG_DIR == *'/claude/work' ]] || exit 19
+ap untrust || exit 20
+unset CLAUDE_CONFIG_DIR
+_ap_auto
+[[ ${CLAUDE_CONFIG_DIR-unset} == unset ]] || exit 21
+agent-profiles trust || exit 22
+ap auto || exit 23
+[[ $CLAUDE_CONFIG_DIR == *'/claude/work' ]] || exit 24
+cd "$HOME" || exit 25
+unset CLAUDE_CONFIG_DIR
+_ap_auto
+cd repo || exit 26
+_ap_auto
+[[ $CLAUDE_CONFIG_DIR == *'/claude/work' ]] || exit 27
+`
+		}
 		cmd := exec.Command(sh, "-fc", script)
 		var diag bytes.Buffer
 		cmd.Stderr = &diag
