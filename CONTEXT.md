@@ -112,6 +112,14 @@ _Avoid_: policy, safety settings
 Deny rules installed in the Agent's managed settings file so they apply to every Profile regardless of its config dir.
 _Avoid_: global deny list
 
+**Profile setting**:
+A named option that `ap` defines for a Profile and changes only through `ap settings`.
+_Avoid_: option, preference, config key
+
+**Global instructions**:
+Instruction files an Agent loads from outside both the Profile and the project, such as your home directory's `CLAUDE.md`, rules and `AGENTS.md`. Each Profile has them **on** or **off**; a Profile whose state was hand-edited to neither is **partial**.
+_Avoid_: inherit, isolated, global memory, shared config, parent instructions
+
 ### Shell layer
 
 **Shim**:

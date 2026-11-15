@@ -21,6 +21,10 @@ func TestAgentCapabilities(t *testing.T) {
 			if hasHint != (name == "claude") || hasToken != (name == "claude") {
 				t.Fatalf("%s capabilities: hint=%v token=%v", name, hasHint, hasToken)
 			}
+			_, hasGlobal := a.(agent.GlobalInstructionsSetter)
+			if hasGlobal != (name == "claude") {
+				t.Fatalf("%s Global instructions capability = %v", name, hasGlobal)
+			}
 			if hasHint && hinter.PluginSkillsHint() != "(plugin skills: manage with /plugin inside this profile)" {
 				t.Fatalf("PluginSkillsHint() = %q", hinter.PluginSkillsHint())
 			}
