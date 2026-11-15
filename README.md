@@ -22,7 +22,7 @@ quoted.
 
 ## Install
 
-Requires Go 1.25 or newer.
+Requires Go 1.26.9 or newer.
 
 ```sh
 go install github.com/thlinhit/agent-profiles/cmd/agent-profiles@latest
