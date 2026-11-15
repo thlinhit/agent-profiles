@@ -26,7 +26,7 @@ func applyPlan(dir, agentName, profileName string, plan skills.Plan, out io.Writ
 			sign = "-"
 		}
 		if err != nil {
-			fmt.Fprintf(out, "✗ %s %s: %v\n", sign, r.Name, err)
+			_, _ = fmt.Fprintf(out, "✗ %s %s: %v\n", sign, r.Name, err)
 			if restore != "" {
 				args := []string{agentName, profileName, restore, r.Name}
 				for i, arg := range args {
@@ -36,11 +36,11 @@ func applyPlan(dir, agentName, profileName string, plan skills.Plan, out io.Writ
 					}
 					args[i] = quoted
 				}
-				fmt.Fprintf(out, "  restore with: ap skills add %s %s %s --name %s\n", args[0], args[1], args[2], args[3])
+				_, _ = fmt.Fprintf(out, "  restore with: ap skills add %s %s %s --name %s\n", args[0], args[1], args[2], args[3])
 			}
 			return
 		}
-		fmt.Fprintf(out, "✓ %s %s\n", sign, r.Name)
+		_, _ = fmt.Fprintf(out, "✓ %s %s\n", sign, r.Name)
 	})
 }
 

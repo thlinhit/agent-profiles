@@ -285,8 +285,10 @@ func unknownSuggestion(kind, name, parent string) error {
 		}
 	}
 	if best != "" {
+		//nolint:staticcheck // ST1005: the two-line "Run 'ap help'" hint is intentional CLI output
 		return fmt.Errorf("unknown %s %q. Did you mean %q?\nRun 'ap help' for a list of commands.", kind, name, best)
 	}
+	//nolint:staticcheck // ST1005: the two-line "Run 'ap help'" hint is intentional CLI output
 	return fmt.Errorf("unknown %s %q.\nRun 'ap help' for a list of commands.", kind, name)
 }
 
@@ -300,6 +302,7 @@ func unknownSkillSubcommand(parent, name string) error {
 	if best := nearestName(name, candidates); best != "" {
 		msg = fmt.Sprintf("unknown skills subcommand %q. Did you mean %q?", name, best)
 	}
+	//nolint:staticcheck // ST1005: the two-line "Run '...'" hint is intentional CLI output
 	return fmt.Errorf("%s\nRun '%s' for a list of subcommands.", msg, help)
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+
 	"github.com/thlinhit/agent-profiles/internal/fsutil"
 )
 
