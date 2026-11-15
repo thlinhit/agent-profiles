@@ -140,6 +140,7 @@ returns to the list with selections kept.
 ## Shared Claude guardrails
 
 `ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
+It also seeds `attribution.commit: ""`, which hides the `Co-Authored-By` trailer on commits (the older `includeCoAuthoredBy` key is deprecated upstream).
 It also seeds a status line showing the profile (with an emoji picked from its name), model, context used, and directory with git branch and dirty marker (`*`); requires `jq` and makes no API calls.
 `ap update claude <name>` (or `--all`) refreshes the status line in existing profiles and leaves `permissions` and `env` untouched.
 Profiles may edit these settings afterwards. Deny rules live in managed settings
