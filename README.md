@@ -158,13 +158,33 @@ the installed file:
 sudo rm "/Library/Application Support/ClaudeCode/managed-settings.json"
 ```
 
+## Global instructions
+
+Claude Code also loads instruction files from your home directory (`~/.claude/CLAUDE.md`, `~/.claude/rules/**`, `~/AGENTS.md`, `~/.claude/AGENTS.md`, `~/CLAUDE.md`, `~/CLAUDE.local.md`), even when `CLAUDE_CONFIG_DIR` points at a profile. Each claude profile has Global instructions **on** (the default) or **off**.
+
+- Off writes those six paths into `claudeMdExcludes` in the profile's `settings.json`. Entries you added yourself are kept.
+- On removes only those six entries, and drops `claudeMdExcludes` if it ends empty.
+- The state is read from `settings.json`; there is no separate record. A profile edited by hand into neither state reports `partial`.
+- `ap create claude <name>` asks on a terminal; `--global-instructions on|off` sets it without asking, and `--from` keeps the source profile's setting.
+- Restart running Claude sessions after a change.
+
+```sh
+ap settings set claude work global-instructions off
+ap settings get claude work global-instructions   # on | off | partial
+ap settings                                      # interactive, in a terminal
+```
+
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin]` | Create a profile; `--init` writes a starter config; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
+| `create <agent> <name> [--init \| --from <profile>] [--base-url <url>] [--auth-token-stdin] [--global-instructions on\|off]` | Create a profile; `--init` writes a starter config; `--global-instructions` (claude only) sets [Global instructions](#global-instructions) and skips the question; `--from` copies only `settings.json` from an existing profile (no login, MCP servers, sessions or history); `--base-url` (claude only) sets `env.ANTHROPIC_BASE_URL`, e.g. for a local proxy. Only `http(s)` URLs without credentials or query are accepted; `--auth-token-stdin` (claude only) sets `env.ANTHROPIC_AUTH_TOKEN`, prompting without echo on a terminal or reading one line from a pipe, so the token never appears in argv or shell history |
 | `list [agent] [--json]` | List profiles; JSON output includes agent, profile, and path |
 | `update <agent> <name> \| --all` | Refresh ap-owned settings in one or all profiles |
+| `settings [<agent> [<profile>]]` | Settings screen: Space/Enter toggles and saves at once, Esc closes; needs a terminal |
+| `settings ls <agent> <profile> [--json]` | List Profile settings and their values |
+| `settings get <agent> <profile> <key> [--json]` | Print one Profile setting: `on`, `off` or `partial` |
+| `settings set <agent> <profile> <key> <on\|off>` | Change a Profile setting; only `on` and `off` are accepted. Known keys: `global-instructions` |
 | `delete <agent> <name> [--yes]` | Delete a profile; prompts unless `--yes`, which is required without terminal stdin |
 | `use <agent> <name>` | Activate a profile in the current shell |
 | `off <agent>` | Deactivate a profile in the current shell |

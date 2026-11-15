@@ -5,6 +5,7 @@ import (
 
 	"github.com/thlinhit/agent-profiles/internal/agent/claude"
 	"github.com/thlinhit/agent-profiles/internal/agent/pi"
+	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
 type Agent interface {
@@ -53,6 +54,18 @@ type SkillDirsSetter interface {
 	// SetSkillDirs drops prev entries that are not in next, appends missing
 	// next entries, and keeps everything else the user configured.
 	SetSkillDirs(current []byte, prev, next []string) ([]byte, error)
+}
+
+// GlobalInstructionsSetter is implemented by agents that can stop loading
+// instruction files from outside the Profile (Global instructions). The state
+// lives in the Profile's settings only; there is no ledger.
+type GlobalInstructionsSetter interface {
+	// GlobalInstructionsState reports whether settings exclude the instruction
+	// files under home. A nil settings means the Profile has no settings file.
+	GlobalInstructionsState(settings []byte, home string) (profile.SettingState, error)
+	// WithGlobalInstructions returns settings with those files excluded (on is
+	// false) or allowed (on is true). A nil result means no file is needed.
+	WithGlobalInstructions(settings []byte, home string, on bool) ([]byte, error)
 }
 
 func All() []Agent { return []Agent{claude.Adapter{}, pi.Adapter{}} }

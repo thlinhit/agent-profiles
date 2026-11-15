@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"golang.org/x/term"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
@@ -20,6 +21,17 @@ const maxTokenSize = 4096
 // tokenInput is where --auth-token-stdin reads from; tests replace it.
 var tokenInput = os.Stdin
 
+// stdinIsTerminal reports whether create may ask a question; tests replace it.
+var stdinIsTerminal = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
+// stderrIsTerminal reports whether the question would be visible; prompts render on stderr. Tests replace it.
+var stderrIsTerminal = func() bool { return term.IsTerminal(int(os.Stderr.Fd())) }
+
+// askGlobalInstructions asks whether to load Global instructions; tests replace it.
+var askGlobalInstructions = askGlobalInstructionsOn
+
+var errCancelled = errors.New("cancelled, no profile created")
+
 func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error {
 	if len(args) < 3 {
 		return errors.New(commandUsage("create"))
@@ -29,7 +41,7 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 		return err
 	}
 	var initTemplate, tokenFromStdin bool
-	var baseURL, from string
+	var baseURL, from, globalFlag string
 	seen := map[string]bool{}
 	for i := 3; i < len(args); i++ {
 		if seen[args[i]] {
@@ -53,6 +65,12 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 			}
 			i++
 			baseURL = args[i]
+		case "--global-instructions":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return fmt.Errorf("--global-instructions requires on or off")
+			}
+			i++
+			globalFlag = args[i]
 		default:
 			return fmt.Errorf("unknown option %q", args[i])
 		}
@@ -63,13 +81,26 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 	if from == args[2] {
 		return fmt.Errorf("--from must name a different profile")
 	}
+	if globalFlag != "" && globalFlag != "on" && globalFlag != "off" {
+		return fmt.Errorf("--global-instructions must be on or off, not %q", globalFlag)
+	}
+	globalSetter, hasGlobal := a.(agent.GlobalInstructionsSetter)
+	if globalFlag != "" && !hasGlobal {
+		return fmt.Errorf("%s does not support Global instructions yet", a.Name())
+	}
+	// Ask only when nothing else decides the setting: --from copies it and
+	// the flag overrides it. Both streams must be terminals, as in the settings
+	// screen: an unseen question would block.
+	askGlobal := globalFlag == "" && from == "" && hasGlobal && stdinIsTerminal() && stderrIsTerminal()
 	var tokenSetter agent.AuthTokenSetter
 	if tokenFromStdin {
 		var ok bool
 		if tokenSetter, ok = a.(agent.AuthTokenSetter); !ok {
 			return fmt.Errorf("agent %q does not support --auth-token-stdin", a.Name())
 		}
-		// Fail before prompting rather than after the token was typed.
+	}
+	if tokenFromStdin || askGlobal {
+		// Fail before prompting rather than after the answer was typed.
 		if err := profile.ValidateName(args[2]); err != nil {
 			return err
 		}
@@ -95,6 +126,25 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 			return fmt.Errorf("--base-url: %w", err)
 		}
 	}
+	var globalOn, setGlobal bool
+	switch {
+	case globalFlag != "":
+		globalOn, setGlobal = globalFlag == "on", true
+	case askGlobal:
+		if globalOn, err = askGlobalInstructions(); err != nil {
+			return err
+		}
+		setGlobal = true
+	}
+	if setGlobal {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if template, err = globalSetter.WithGlobalInstructions(template, home, globalOn); err != nil {
+			return fmt.Errorf("global instructions: %w", err)
+		}
+	}
 	if tokenFromStdin {
 		token, err := readToken(tokenInput, diagnostic, tokenSetter.AuthTokenLabel())
 		if err != nil {
@@ -110,6 +160,21 @@ func runCreate(s profile.Store, args []string, out, diagnostic io.Writer) error 
 	}
 	_, err = fmt.Fprintln(out, p)
 	return err
+}
+
+// askGlobalInstructionsOn asks on stderr and defaults to Yes.
+func askGlobalInstructionsOn() (bool, error) {
+	on := true
+	err := runPrompt(huh.NewConfirm().
+		Title("Load Global instructions?").
+		Description("Instruction files from your home directory (CLAUDE.md, rules, AGENTS.md).").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&on))
+	if errors.Is(err, huh.ErrUserAborted) {
+		return false, errCancelled
+	}
+	return on, err
 }
 
 // readToken prompts without echo on a terminal, otherwise reads one line
