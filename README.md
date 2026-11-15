@@ -280,6 +280,18 @@ golangci-lint fmt   # fix import grouping
 
 Integration tests run real bash and zsh shells; a missing shell is skipped.
 
+### Pre-push check
+
+A git `pre-push` hook runs `make check` (vet, tests, and lint when `golangci-lint`
+is installed) before every push. It applies to anyone running `git push` in this
+repo, including Claude and Pi sessions. Enable it once per clone:
+
+```sh
+make hooks
+```
+
+Bypass in an emergency with `git push --no-verify`.
+
 ## Credits
 
 A clean reimplementation inspired by
