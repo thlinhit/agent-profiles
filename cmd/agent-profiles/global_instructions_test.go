@@ -142,7 +142,7 @@ func TestCreateGlobalInstructionsInitKeepsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{`"permissions"`, `"statusLine"`, `"claudeMdExcludes"`} {
+	for _, key := range []string{`"permissions"`, `"statusLine"`, `"claudeMdExcludes"`, `"attribution"`} {
 		if !strings.Contains(string(data), key) {
 			t.Fatalf("settings missing %s:\n%s", key, data)
 		}

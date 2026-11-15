@@ -65,12 +65,16 @@ func TestClaudeInitTemplate(t *testing.T) {
 	}
 	var settings struct {
 		Permissions map[string]json.RawMessage `json:"permissions"`
+		Attribution map[string]any             `json:"attribution"`
 	}
 	if err := json.Unmarshal(template, &settings); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := settings.Permissions["deny"]; ok {
 		t.Fatal("InitTemplate() must not contain permissions.deny")
+	}
+	if got, ok := settings.Attribution["commit"]; !ok || got != "" {
+		t.Errorf("attribution.commit = %v (present=%v); want empty string to hide the trailer", got, ok)
 	}
 	for key, want := range map[string]any{
 		"allow":       []any{"Edit", "Bash(git *)"},

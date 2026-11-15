@@ -82,7 +82,10 @@ var initTemplate = func() string {
 	if err != nil {
 		panic(err)
 	}
+	// attribution.commit "" hides the Co-Authored-By trailer. The older
+	// includeCoAuthoredBy key is deprecated upstream (since v2.0.62).
 	out, err := json.MarshalIndent(map[string]json.RawMessage{
+		"attribution": json.RawMessage(`{"commit": ""}`),
 		"permissions": json.RawMessage(permissionsTemplate),
 		"statusLine":  statusLine,
 	}, "", "  ")

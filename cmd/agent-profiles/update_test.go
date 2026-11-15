@@ -22,7 +22,7 @@ func templateStatusLine(t *testing.T) json.RawMessage {
 
 func TestUpdateRefreshesStatusLineAndKeepsUserSettings(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
-	old := []byte(`{"env":{"ANTHROPIC_AUTH_TOKEN":"secret"},"permissions":{"allow":["Read"]},"statusLine":{"type":"command","command":"old"}}`)
+	old := []byte(`{"attribution":{"commit":"Co-Authored-By: Me"},"env":{"ANTHROPIC_AUTH_TOKEN":"secret"},"permissions":{"allow":["Read"]},"statusLine":{"type":"command","command":"old"}}`)
 	dir := createWithSettings(t, "work", old)
 	if err := os.Chmod(filepath.Join(dir, "settings.json"), 0o644); err != nil {
 		t.Fatal(err)
@@ -52,6 +52,9 @@ func TestUpdateRefreshesStatusLineAndKeepsUserSettings(t *testing.T) {
 	}
 	if !jsonEqual(t, got["permissions"], json.RawMessage(`{"allow":["Read"]}`)) {
 		t.Fatalf("permissions changed: %s", got["permissions"])
+	}
+	if !jsonEqual(t, got["attribution"], json.RawMessage(`{"commit":"Co-Authored-By: Me"}`)) {
+		t.Fatalf("attribution changed: %s", got["attribution"])
 	}
 	st, err := os.Stat(path)
 	if err != nil {
