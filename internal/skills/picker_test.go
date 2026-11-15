@@ -202,7 +202,7 @@ func TestSelectBuildRowsEdges(t *testing.T) {
 		if err := os.Chmod(e.poolB, 0); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { os.Chmod(e.poolB, 0o700) })
+		t.Cleanup(func() { _ = os.Chmod(e.poolB, 0o700) })
 		var warnings []string
 		pool, _, err := ScanPools(func(err error) { warnings = append(warnings, err.Error()) })
 		if err != nil {
@@ -260,10 +260,10 @@ func TestSelectPlanChanges(t *testing.T) {
 				}
 				return out
 			}
-			if fmt.Sprint(names(plan.Removes)) != fmt.Sprint(tc.removes) && !(len(plan.Removes) == 0 && tc.removes == nil) {
+			if fmt.Sprint(names(plan.Removes)) != fmt.Sprint(tc.removes) && (len(plan.Removes) != 0 || tc.removes != nil) {
 				t.Errorf("removes = %v, want %v", names(plan.Removes), tc.removes)
 			}
-			if fmt.Sprint(names(plan.Adds)) != fmt.Sprint(tc.adds) && !(len(plan.Adds) == 0 && tc.adds == nil) {
+			if fmt.Sprint(names(plan.Adds)) != fmt.Sprint(tc.adds) && (len(plan.Adds) != 0 || tc.adds != nil) {
 				t.Errorf("adds = %v, want %v", names(plan.Adds), tc.adds)
 			}
 		})
