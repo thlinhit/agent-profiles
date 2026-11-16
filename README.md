@@ -137,6 +137,106 @@ returns to the list with selections kept.
 - Requires a terminal on stdin and stderr (the UI draws on stderr because the
   `ap` shell function captures stdout); scripts should use `add`/`rm`.
 
+## MCP servers
+
+An **MCP pool** is one file of named **Pool servers**. `ap mcp sync` copies every
+Pool server into every profile of every Agent that supports MCP (Claude and Pi),
+as **Managed servers**. The pool is `$XDG_CONFIG_HOME/agent-profiles/mcp.json`
+(default `~/.config/agent-profiles/mcp.json`). To keep it elsewhere, set `mcp_pool`
+in `config.toml`:
+
+```toml
+mcp_pool = "~/dotfiles/mcp.json"
+```
+
+```sh
+ap mcp add-server docs --env LOG=debug -- npx -y docs-mcp
+ap mcp add-server atlassian --url https://mcp.atlassian.com/v1/mcp --auth oauth
+ap mcp list
+ap mcp sync
+ap mcp remove-server docs
+```
+
+`add-server` and `remove-server` change only the pool and print `pool: + atlassian`
+or `pool: - docs`. Run `ap mcp sync` to apply the change to profiles. `sync` prints one
+line per change, for example:
+
+```text
+mcporter: updated
+claude/work: + atlassian
+pi/work: + atlassian
+```
+
+A profile with nothing to change prints `claude/work: unchanged`.
+
+- Sync resets each Managed server to the pool's version: hand edits are
+  overwritten, and hand deletions are added back (`~` or `+`).
+- Servers you wrote yourself with a different name are never touched. If one
+  has the same name as a Pool server, the pool's version replaces it. The old
+  definition is saved to `.ap-mcp-backup.json` in that profile, and sync prints
+  `! atlassian replaced by pool; backup saved`.
+- Sync records its Managed servers in `.ap-mcp.json` in the profile directory.
+  A Managed server is removed from profiles when its name leaves the pool.
+- A Pool server that an Agent cannot run is skipped with a `!` line. Its existing
+  Managed server stays in place.
+- `ap` writes its own config only when the content changes, and it never edits
+  a profile's other keys.
+
+**Secrets** go in `${VAR}` references, never in literal values. Quote the value so
+your shell does not expand it first:
+
+```sh
+ap mcp add-server docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+```
+
+`ap` stores the text as typed and warns for any `--header` or `--env` value that
+has no `${...}` reference. The warning names the key, never the value.
+
+### Shared login
+
+`--auth oauth` marks a Pool server that uses OAuth. Every profile of both Agents
+uses one **Shared login** for it, so you log in once:
+
+```sh
+ap mcp login atlassian    # runs mcporter's browser login in this terminal
+ap mcp list               # atlassian  oauth  logged in (expires 2026-12-01 09:00)
+```
+
+- Requires mcporter 0.17.0 or newer and Node 24 or newer. Without them, an OAuth
+  server is skipped with a reason such as `! atlassian skipped: mcporter not found
+  (needs mcporter >= 0.17.0 and Node >= 24)`. Direct servers still sync, and a
+  profile that already has the server keeps it. `ap mcp list` then shows
+  `unavailable`.
+- Tokens are stored in `$XDG_DATA_HOME/mcporter/credentials.json` (falling back to
+  `~/.mcporter/credentials.json`), outside every profile. `ap` writes its mcporter
+  config to `$XDG_DATA_HOME/agent-profiles/mcporter.json` (default
+  `~/.local/share/agent-profiles/mcporter.json`).
+- Set `MCPORTER_VAULT_PASSWORD` in your shell for mcporter. `ap` never reads or
+  stores it.
+- Claude tools from an OAuth server get a prefixed name, for example
+  `mcp__atlassian__atlassian__<tool>`.
+- `ap mcp list` reads only the credential metadata. It never prints a token.
+
+### Syncing
+
+- `ap update` syncs MCP for Claude only. Run `ap mcp sync` to sync Pi profiles.
+- Run `ap mcp sync` with Claude sessions closed. Claude rewrites `.claude.json`
+  while it runs.
+- Restart running sessions to load a change.
+
+### Limits
+
+- The Agent runs as you, so the Managed deny rules cannot fully protect mcporter's
+  credentials. Anything the Agent runs can still read them.
+- Pi has no persistent deny rule, so mcporter's credentials are protected for
+  Claude only.
+- External MCP servers are left alone: servers from claude.ai, and servers in a
+  project's `.mcp.json`. The Agent's own approval rules apply to them.
+- A direct HTTP server with its own OAuth login, not `--auth oauth`, logs in
+  separately for each profile through the Agent.
+- One Shared login covers each OAuth server for every profile. Two accounts for
+  the same OAuth server are not supported.
+
 ## Shared Claude guardrails
 
 `ap create claude <name> --init` seeds `allow`, `ask`, and `defaultMode` once.
@@ -144,7 +244,8 @@ It also seeds `attribution.commit: ""`, which hides the `Co-Authored-By` trailer
 It also seeds a status line showing the profile (with an emoji picked from its name), model, context used, and directory with git branch and dirty marker (`*`); requires `jq` and makes no API calls.
 `ap update claude <name>` (or `--all`) refreshes the status line in existing profiles and leaves `permissions` and `env` untouched.
 Profiles may edit these settings afterwards. Deny rules live in managed settings
-so every profile gets them regardless of `CLAUDE_CONFIG_DIR`.
+so every profile gets them regardless of `CLAUDE_CONFIG_DIR`. The same file also
+denies `mcporter` commands and reads of its credentials; see [MCP servers](#mcp-servers).
 
 Install the shared deny rules on macOS from this repository:
 
@@ -198,6 +299,11 @@ ap settings                                      # interactive, in a terminal
 | `skills rm <agent> <profile> <skill>` | Remove only a Skill link |
 | `skills select [<agent> [<profile>]]` | Interactively choose pool Skills; prompts in a terminal, use `ap skills add/rm` instead without one |
 | `skills pool add <path>` / `skills pool rm <path>` / `skills pool ls [--json]` | Manage and list Skill pools |
+| `mcp sync` | Write ap's mcporter config and sync Managed servers into every profile of every MCP-capable Agent |
+| `mcp list` | List Pool servers; OAuth servers show Shared login status |
+| `mcp add-server <name> (--url <url> \| -- <cmd> [args...]) [--auth oauth] [--header K=V]... [--env K=V]...` | Add a Pool server to the MCP pool; run `mcp sync` to apply |
+| `mcp remove-server <name>` | Remove a Pool server from the MCP pool; run `mcp sync` to apply |
+| `mcp login <name>` | Log in an OAuth Pool server through mcporter (Shared login) |
 | `init zsh\|bash` | Print the shell function and Auto-switch hook |
 
 Profiles live in `$XDG_DATA_HOME/agent-profiles/<agent>/<name>`
