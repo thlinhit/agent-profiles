@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/thlinhit/agent-profiles/internal/agent/claude"
 	"github.com/thlinhit/agent-profiles/internal/agent/pi"
+	"github.com/thlinhit/agent-profiles/internal/mcp"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
 
@@ -44,6 +46,16 @@ type SettingsUpdater interface {
 	// UpdateSettings returns current with ap-owned keys refreshed. A nil
 	// current means the profile has no settings file yet.
 	UpdateSettings(current []byte) ([]byte, error)
+}
+
+// MCPSetter is implemented by Agents that can load MCP servers from their config dir.
+type MCPSetter interface {
+	// MCPConfigFile returns the path of the Agent's MCP config inside dir.
+	MCPConfigFile(dir string) string
+	// Translate returns the Agent's entry for a Pool server, or a skip reason.
+	Translate(name string, s mcp.Server, proxy mcp.Proxy) (entry json.RawMessage, skip string, err error)
+	// SetServers writes next, drops prev Managed servers not in next, keeps everything else.
+	SetServers(current []byte, prev []string, next map[string]json.RawMessage) ([]byte, error)
 }
 
 // SkillDirsSetter is implemented by agents that must be told about the real
