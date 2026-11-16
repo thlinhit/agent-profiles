@@ -87,3 +87,62 @@ func TestHelpNotes(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPAddServerUsageErrors(t *testing.T) {
+	const add = "\nRun 'ap help mcp add-server' for details."
+	usage := "usage: ap mcp add-server <name> (--url <url> | -- <cmd> [args...]) [--auth oauth] [--header K=V]... [--env K=V]..."
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"mcp", "add-server"}, usage + add},
+		{[]string{"mcp", "add-server", "--url", "https://a.example"}, usage + add},
+		{[]string{"mcp", "add-server", "x"}, "set --url <url> or -- <cmd> [args...]\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "--", "npx"}, "use either --url or -- <cmd>, not both\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--"}, "-- needs a command\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--auth", "oauth", "--", "npx"}, "--auth needs --url\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "--auth", "other"}, "--auth must be \"oauth\", got \"other\"\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--header", "A=b", "--", "npx"}, "--header needs --url\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "--env", "A=b"}, "--env needs a stdio server (-- <cmd>)\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "--header", "novalue"}, "--header must be KEY=VALUE, got \"novalue\"\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--env", "=v", "--", "npx"}, "--env must be KEY=VALUE, got \"=v\"\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url"}, "--url needs a value\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "--url", "https://b.example"}, "--url given twice\n" + usage + add},
+		{[]string{"mcp", "add-server", "x", "--url", "https://a.example", "extra"}, "unexpected argument \"extra\"\n" + usage + add},
+	}
+	for _, tc := range tests {
+		err := run(tc.args, &bytes.Buffer{}, &bytes.Buffer{})
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("%v: got %v, want %q", tc.args, err, tc.want)
+		}
+	}
+}
+
+func TestMCPRemoveServerUsageErrors(t *testing.T) {
+	want := "usage: ap mcp remove-server <name>\nRun 'ap help mcp remove-server' for details."
+	for _, args := range [][]string{{"mcp", "remove-server"}, {"mcp", "remove-server", "a", "b"}, {"mcp", "remove-server", "--all"}} {
+		err := run(args, &bytes.Buffer{}, &bytes.Buffer{})
+		if err == nil || err.Error() != want {
+			t.Errorf("%v: got %v, want %q", args, err, want)
+		}
+	}
+}
+
+func TestHelpMCPSubcommands(t *testing.T) {
+	var add bytes.Buffer
+	if err := run([]string{"help", "mcp", "add-server"}, &add, &add); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Usage: ap mcp add-server <name> (--url <url> | -- <cmd> [args...])", "--env K=V", "ap mcp add-server docs --env LOG=debug -- npx -y docs-mcp"} {
+		if !strings.Contains(add.String(), want) {
+			t.Errorf("help mcp add-server: missing %q in %s", want, add.String())
+		}
+	}
+	var remove bytes.Buffer
+	if err := run([]string{"help", "mcp", "remove-server"}, &remove, &remove); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(remove.String(), "Usage: ap mcp remove-server <name>") {
+		t.Errorf("help mcp remove-server: %s", remove.String())
+	}
+}

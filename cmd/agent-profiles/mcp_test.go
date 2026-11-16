@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thlinhit/agent-profiles/internal/config"
 	"github.com/thlinhit/agent-profiles/internal/mcp"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 )
@@ -246,7 +247,7 @@ func TestUpdateAddsMCPServersToClaudeOnly(t *testing.T) {
 }
 
 func TestMCPUsageAndHelp(t *testing.T) {
-	want := "usage: ap mcp sync\nRun 'ap help mcp' for details."
+	want := "usage: ap mcp sync|add-server|remove-server\nRun 'ap help mcp' for details."
 	for _, args := range [][]string{{"mcp"}, {"mcp", "list"}} {
 		var out bytes.Buffer
 		err := run(args, &out, &out)
@@ -254,8 +255,173 @@ func TestMCPUsageAndHelp(t *testing.T) {
 			t.Fatalf("%v: err = %v; want %q", args, err, want)
 		}
 	}
-	if top := mcpTestRun(t, "help"); !strings.Contains(top, "\nMCP\n") || !strings.Contains(top, "mcp sync") {
+	top := mcpTestRun(t, "help")
+	for _, row := range []string{"mcp sync", "mcp add-server <name>", "mcp remove-server <name>"} {
+		if !strings.Contains(top, row) {
+			t.Fatalf("top help has no %q row: %s", row, top)
+		}
+	}
+	if !strings.Contains(top, "\nMCP\n") {
 		t.Fatalf("top help has no MCP group: %s", top)
+	}
+}
+
+// mcpTestRealPool points the pool at config.MCPPoolPath under scratch HOME and XDG dirs.
+func mcpTestRealPool(t *testing.T) (base string) {
+	t.Helper()
+	base = t.TempDir()
+	t.Setenv("HOME", base)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
+	old := mcpPoolPath
+	mcpPoolPath = config.MCPPoolPath
+	t.Cleanup(func() { mcpPoolPath = old })
+	return base
+}
+
+func TestMCPAddServerS1WritesPoolOnly(t *testing.T) {
+	poolPath, mcporterPath := mcpTestEnv(t, "")
+	got := mcpTestRun(t, "mcp", "add-server", "atlassian", "--url", mcpTestAtlassian.URL, "--auth", "oauth")
+	if got != "pool: + atlassian\n" {
+		t.Fatalf("output = %q", got)
+	}
+	data, err := os.ReadFile(poolPath)
+	if err != nil {
+		t.Fatalf("pool file not created: %v", err)
+	}
+	var top struct {
+		Servers map[string]map[string]string `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &top); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"type": "http", "url": mcpTestAtlassian.URL, "auth": "oauth"}
+	if !reflect.DeepEqual(top.Servers["atlassian"], want) {
+		t.Fatalf("pool atlassian = %v; want %v", top.Servers["atlassian"], want)
+	}
+	if _, err := os.Stat(filepath.Join(os.Getenv("XDG_DATA_HOME"), "agent-profiles")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a Profile store was created: %v", err)
+	}
+	if _, err := os.Stat(mcporterPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mcporter config was created: %v", err)
+	}
+}
+
+func TestMCPAddServerS2PoolFromConfig(t *testing.T) {
+	base := mcpTestRealPool(t)
+	cfgDir := filepath.Join(base, "config", "agent-profiles")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("mcp_pool = \"~/dotfiles/mcp.json\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mcpTestRun(t, "mcp", "add-server", "atlassian", "--url", mcpTestAtlassian.URL, "--auth", "oauth")
+
+	pool, _, err := mcp.Load(filepath.Join(base, "dotfiles", "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pool.Servers["atlassian"]; got.URL != mcpTestAtlassian.URL || got.Auth != "oauth" {
+		t.Fatalf("configured pool atlassian = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(cfgDir, "mcp.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("default pool was created too: %v", err)
+	}
+}
+
+func TestMCPAddServerStdioKeepsEnvLiteral(t *testing.T) {
+	poolPath, _ := mcpTestEnv(t, "")
+	got := mcpTestRun(t, "mcp", "add-server", "docs", "--env", "DOCS_TOKEN=${DOCS_TOKEN}", "--", "npx", "-y", "docs-mcp")
+	if got != "pool: + docs\n" {
+		t.Fatalf("output = %q", got)
+	}
+	pool, _, err := mcp.Load(poolPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mcp.Server{Type: "stdio", Command: "npx", Args: []string{"-y", "docs-mcp"}, Env: map[string]string{"DOCS_TOKEN": "${DOCS_TOKEN}"}}
+	if !reflect.DeepEqual(pool.Servers["docs"], want) {
+		t.Fatalf("docs = %+v; want %+v", pool.Servers["docs"], want)
+	}
+}
+
+func TestMCPAddServerDuplicateAndRemove(t *testing.T) {
+	poolPath, _ := mcpTestEnv(t, "")
+	mcpTestRun(t, "mcp", "add-server", "atlassian", "--url", mcpTestAtlassian.URL, "--auth", "oauth")
+
+	var out bytes.Buffer
+	err := run([]string{"mcp", "add-server", "atlassian", "--url", "https://other.example/mcp"}, &out, &out)
+	if err == nil || err.Error() != `MCP pool already has "atlassian"; run 'ap mcp remove-server atlassian' first` {
+		t.Fatalf("duplicate add: err = %v", err)
+	}
+	if pool, _, _ := mcp.Load(poolPath); pool.Servers["atlassian"].URL != mcpTestAtlassian.URL {
+		t.Fatal("duplicate add changed the pool")
+	}
+
+	if got := mcpTestRun(t, "mcp", "remove-server", "atlassian"); got != "pool: - atlassian\nrun 'ap mcp sync' to update Profiles\n" {
+		t.Fatalf("remove output = %q", got)
+	}
+	if pool, _, _ := mcp.Load(poolPath); len(pool.Servers) != 0 {
+		t.Fatalf("pool still has servers: %v", pool.Servers)
+	}
+
+	err = run([]string{"mcp", "remove-server", "atlassian"}, &out, &out)
+	if err == nil || err.Error() != `MCP pool has no server "atlassian"` {
+		t.Fatalf("remove unknown: err = %v", err)
+	}
+}
+
+// TestMCPRemoveServerS16 covers S16, plus the clash that makes the backup file: pi/work starts with a hand-made atlassian.
+func TestMCPRemoveServerS16ManagedServersLeave(t *testing.T) {
+	poolPath, mcporterPath := mcpTestEnv(t, "")
+	mcpTestRun(t, "mcp", "add-server", "atlassian", "--url", mcpTestAtlassian.URL, "--auth", "oauth")
+	mcpTestRun(t, "create", "claude", "work", "--init")
+	mcpTestRun(t, "create", "pi", "work", "--init")
+	claudeCfg := filepath.Join(mcpTestProfile(t, "claude", "work"), ".claude.json")
+	piCfg := filepath.Join(mcpTestProfile(t, "pi", "work"), "mcp.json")
+	mustWrite(t, claudeCfg, `{"numStartups":3,"mcpServers":{"linear":{"type":"http","url":"https://linear.example/mcp"}}}`)
+	mustWrite(t, piCfg, `{"mcpServers":{"atlassian":{"command":"my-atlassian"}}}`)
+
+	if got := mcpTestRun(t, "mcp", "sync"); !strings.Contains(got, "pi/work: ! atlassian replaced by pool; backup saved\n") {
+		t.Fatalf("first sync output = %q", got)
+	}
+	backup := filepath.Join(mcpTestProfile(t, "pi", "work"), ".ap-mcp-backup.json")
+	if _, err := os.Stat(backup); err != nil {
+		t.Fatalf("backup not written: %v", err)
+	}
+
+	mcpTestRun(t, "mcp", "remove-server", "atlassian")
+	got := mcpTestRun(t, "mcp", "sync")
+	for _, line := range []string{"mcporter: updated\n", "claude/work: - atlassian\n", "pi/work: - atlassian\n"} {
+		if !strings.Contains(got, line) {
+			t.Fatalf("sync output = %q; missing %q", got, line)
+		}
+	}
+	if mcpTestHas(t, claudeCfg, "atlassian") || mcpTestHas(t, piCfg, "atlassian") {
+		t.Fatal("atlassian still in a Profile")
+	}
+	if !mcpTestHas(t, claudeCfg, "linear") {
+		t.Fatal("hand-made linear was removed")
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Fatalf("backup file was removed: %v", err)
+	}
+	if data, err := os.ReadFile(mcporterPath); err != nil || strings.Contains(string(data), "atlassian") {
+		t.Fatalf("mcporter config still has atlassian (err %v): %s", err, data)
+	}
+	if pool, _, _ := mcp.Load(poolPath); len(pool.Servers) != 0 {
+		t.Fatalf("pool still has servers: %v", pool.Servers)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -263,4 +429,48 @@ func TestMCPUsageAndHelp(t *testing.T) {
 func mcpTestHas(t *testing.T, path, name string) bool {
 	t.Helper()
 	return mcpTestEntry(t, path, name) != nil
+}
+
+func TestMCPAddServerWarnsOnLiteralValueWithoutEchoingIt(t *testing.T) {
+	poolPath, _ := mcpTestEnv(t, "")
+	got := mcpTestRun(t, "mcp", "add-server", "api", "--url", "https://api.example/mcp", "--header", "Authorization=Bearer literal-secret-123")
+	want := "! api: header Authorization holds a literal value; use ${VAR} instead\npool: + api\n"
+	if got != want {
+		t.Fatalf("output = %q; want %q", got, want)
+	}
+	if strings.Contains(got, "literal-secret-123") {
+		t.Fatalf("warning echoed the value: %q", got)
+	}
+	pool, _, err := mcp.Load(poolPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pool.Servers["api"].Headers["Authorization"] != "Bearer literal-secret-123" {
+		t.Fatalf("literal server was not saved: %+v", pool.Servers["api"])
+	}
+
+	got = mcpTestRun(t, "mcp", "add-server", "docs", "--env", "DOCS_TOKEN=plain-xyz-456", "--", "npx", "docs-mcp")
+	want = "! docs: env DOCS_TOKEN holds a literal value; use ${VAR} instead\npool: + docs\n"
+	if got != want || strings.Contains(got, "plain-xyz-456") {
+		t.Fatalf("env output = %q; want %q", got, want)
+	}
+}
+
+func TestMCPAddServerReferenceValuesDoNotWarn(t *testing.T) {
+	poolPath, _ := mcpTestEnv(t, "")
+	got := mcpTestRun(t, "mcp", "add-server", "api", "--url", "https://api.example/mcp", "--header", "Authorization=Bearer ${TOKEN}")
+	if got != "pool: + api\n" {
+		t.Fatalf("header output = %q", got)
+	}
+	got = mcpTestRun(t, "mcp", "add-server", "docs", "--env", "DOCS_TOKEN=${DOCS_TOKEN}", "--", "npx", "docs-mcp")
+	if got != "pool: + docs\n" {
+		t.Fatalf("env output = %q", got)
+	}
+	pool, _, err := mcp.Load(poolPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pool.Servers["api"].Headers["Authorization"] != "Bearer ${TOKEN}" || pool.Servers["docs"].Env["DOCS_TOKEN"] != "${DOCS_TOKEN}" {
+		t.Fatalf("references were not saved unchanged: %+v %+v", pool.Servers["api"], pool.Servers["docs"])
+	}
 }
