@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
+	"github.com/thlinhit/agent-profiles/internal/mcp"
 	"github.com/thlinhit/agent-profiles/internal/profile"
 	"github.com/thlinhit/agent-profiles/internal/skills"
 )
@@ -24,6 +25,13 @@ func runUpdate(s profile.Store, args []string, out io.Writer) error {
 	u, ok := a.(agent.SettingsUpdater)
 	if !ok {
 		return fmt.Errorf("agent %q has no settings to update", a.Name())
+	}
+	var pool mcp.Pool
+	var proxy mcp.Proxy
+	if _, ok := a.(agent.MCPSetter); ok {
+		if pool, proxy, _, err = loadMCP(); err != nil {
+			return err
+		}
 	}
 	names := []string{args[2]}
 	if args[2] == "--all" {
@@ -62,6 +70,12 @@ func runUpdate(s profile.Store, args []string, out io.Writer) error {
 		}
 		if _, err := fmt.Fprintf(out, "%s/%s: %s\n", a.Name(), name, status); err != nil {
 			return err
+		}
+		if _, ok := a.(agent.MCPSetter); ok {
+			// TODO(pi): run MCP sync for Pi in update. Pi has no SettingsUpdater, so Pi uses ap mcp sync.
+			if _, err := syncMCPProfile(a, dir, a.Name()+"/"+name, pool, proxy, out); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
