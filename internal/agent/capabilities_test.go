@@ -4,6 +4,13 @@ import (
 	"testing"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
+	"github.com/thlinhit/agent-profiles/internal/agent/claude"
+	"github.com/thlinhit/agent-profiles/internal/mcp"
+)
+
+var (
+	_ mcp.Setter      = claude.Adapter{}
+	_ agent.MCPSetter = claude.Adapter{}
 )
 
 func TestAgentCapabilities(t *testing.T) {
