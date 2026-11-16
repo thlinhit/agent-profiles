@@ -14,9 +14,10 @@ import (
 // Config contains the configured skill pool paths.
 type Config struct {
 	SkillPools []string `toml:"skill_pools"`
+	MCPPool    string   `toml:"mcp_pool"`
 }
 
-func configPath() (string, error) {
+func configDir() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -25,7 +26,32 @@ func configPath() (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "agent-profiles", "config.toml"), nil
+	return filepath.Join(base, "agent-profiles"), nil
+}
+
+func configPath() (string, error) {
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.toml"), nil
+}
+
+// MCPPoolPath returns the MCP pool file: the configured mcp_pool if set,
+// otherwise mcp.json in the agent-profiles config directory.
+func MCPPoolPath() (string, error) {
+	cfg, err := Load()
+	if err != nil {
+		return "", err
+	}
+	if cfg.MCPPool != "" {
+		return cfg.MCPPool, nil
+	}
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "mcp.json"), nil
 }
 
 // Load reads config.toml from XDG_CONFIG_HOME or ~/.config.
@@ -53,6 +79,11 @@ func Load() (Config, error) {
 		}
 		cfg.SkillPools[i] = expanded
 	}
+	mcpPool, err := ExpandHome(cfg.MCPPool)
+	if err != nil {
+		return Config{}, fmt.Errorf("expand mcp_pool: %w", err)
+	}
+	cfg.MCPPool = mcpPool
 	return cfg, nil
 }
 

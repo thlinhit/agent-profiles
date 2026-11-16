@@ -8,7 +8,11 @@
       "SendMessage",
       "Read(**/secrets/**)",
       "Read(**/.env*)",
-      "Edit(**/.git/**)"
+      "Edit(**/.git/**)",
+      "Bash(mcporter *)",
+      "Read(**/agent-profiles/mcporter*)",
+      "Read(**/mcporter/credentials.json)",
+      "Read(**/.mcporter/**)"
     ]
   }
 }

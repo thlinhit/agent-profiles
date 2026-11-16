@@ -94,4 +94,55 @@ func TestExpandHome(t *testing.T) {
 	})
 }
 
+func TestMCPPoolPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		unsetXDG bool
+		content  string // config.toml body; empty means no file
+		want     func(home, xdg string) string
+	}{
+		{name: "default under XDG override", want: func(_, xdg string) string {
+			return filepath.Join(xdg, "agent-profiles", "mcp.json")
+		}},
+		{name: "default falls back to ~/.config", unsetXDG: true, want: func(home, _ string) string {
+			return filepath.Join(home, ".config", "agent-profiles", "mcp.json")
+		}},
+		{name: "configured absolute path", content: "mcp_pool = \"/opt/mcp.json\"\n", want: func(_, _ string) string {
+			return "/opt/mcp.json"
+		}},
+		{name: "configured ~/ path", content: "mcp_pool = \"~/pools/mcp.json\"\n", want: func(home, _ string) string {
+			return filepath.Join(home, "pools", "mcp.json")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			xdg := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			base := xdg
+			if tt.unsetXDG {
+				t.Setenv("XDG_CONFIG_HOME", "")
+				base = filepath.Join(home, ".config")
+			}
+			if tt.content != "" {
+				dir := filepath.Join(base, "agent-profiles")
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tt.content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := MCPPoolPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := tt.want(home, xdg); got != want {
+				t.Errorf("MCPPoolPath() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func strptr(s string) *string { return &s }
