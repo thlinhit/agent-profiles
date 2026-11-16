@@ -125,13 +125,19 @@ func TestMCPSyncS3OAuthServerReachesEveryAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg map[string]map[string]map[string]string
+	var cfg struct {
+		McpServers map[string]map[string]string `json:"mcpServers"`
+		Imports    []string                     `json:"imports"`
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
+	if cfg.Imports == nil || len(cfg.Imports) != 0 {
+		t.Fatalf("mcporter config imports = %v; want []", cfg.Imports)
+	}
 	wantCfg := map[string]map[string]string{"atlassian": {"baseUrl": mcpTestAtlassian.URL, "lifecycle": "keep-alive"}}
-	if !reflect.DeepEqual(cfg["mcpServers"], wantCfg) {
-		t.Fatalf("mcporter config = %v; want %v", cfg["mcpServers"], wantCfg)
+	if !reflect.DeepEqual(cfg.McpServers, wantCfg) {
+		t.Fatalf("mcporter config = %v; want %v", cfg.McpServers, wantCfg)
 	}
 
 	if got := mcpTestRun(t, "mcp", "sync"); got != "claude/work: unchanged\npi/work: unchanged\n" {

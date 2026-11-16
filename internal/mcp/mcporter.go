@@ -53,6 +53,9 @@ type mcporterEntry struct {
 
 type mcporterFile struct {
 	McpServers map[string]mcporterEntry `json:"mcpServers"`
+	// Imports is always empty. Without it mcporter also loads Cursor, Claude
+	// and Codex configs from the home directory into the served view.
+	Imports []string `json:"imports"`
 }
 
 // WriteMcporterConfig regenerates the mcporter config at path from the OAuth Pool servers.
@@ -64,7 +67,7 @@ func WriteMcporterConfig(path string, pool Pool) (changed bool, err error) {
 			servers[name] = mcporterEntry{BaseURL: s.URL, Lifecycle: "keep-alive"}
 		}
 	}
-	data, err := json.MarshalIndent(mcporterFile{McpServers: servers}, "", "  ")
+	data, err := json.MarshalIndent(mcporterFile{McpServers: servers, Imports: []string{}}, "", "  ")
 	if err != nil {
 		return false, err
 	}

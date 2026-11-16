@@ -44,9 +44,9 @@ func TestMcporterConfigPath(t *testing.T) {
 	})
 }
 
-const oauthOnlyConfig = "{\n  \"mcpServers\": {\n    \"atlassian\": {\n      \"baseUrl\": \"https://mcp.atlassian.com/v1/mcp\",\n      \"lifecycle\": \"keep-alive\"\n    },\n    \"jira\": {\n      \"baseUrl\": \"https://jira.example/mcp\",\n      \"lifecycle\": \"keep-alive\"\n    }\n  }\n}\n"
+const oauthOnlyConfig = "{\n  \"mcpServers\": {\n    \"atlassian\": {\n      \"baseUrl\": \"https://mcp.atlassian.com/v1/mcp\",\n      \"lifecycle\": \"keep-alive\"\n    },\n    \"jira\": {\n      \"baseUrl\": \"https://jira.example/mcp\",\n      \"lifecycle\": \"keep-alive\"\n    }\n  },\n  \"imports\": []\n}\n"
 
-const emptyConfig = "{\n  \"mcpServers\": {}\n}\n"
+const emptyConfig = "{\n  \"mcpServers\": {},\n  \"imports\": []\n}\n"
 
 func mixedPool() Pool {
 	return Pool{Servers: map[string]Server{
