@@ -588,7 +588,7 @@ func TestMCPListUnknownForMalformedAndSymlinkedCredentials(t *testing.T) {
 	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
 	mcpTestCreds(t, `{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token",`)
 	out := mcpTestRun(t, "mcp", "list")
-	if !strings.Contains(out, "atlassian  oauth  unknown\n") || strings.Contains(out, "fake-token") {
+	if !strings.Contains(out, "atlassian  oauth  unknown (malformed credentials file)\n") || strings.Contains(out, "fake-token") {
 		t.Fatalf("malformed: got:\n%s", out)
 	}
 
@@ -601,7 +601,7 @@ func TestMCPListUnknownForMalformedAndSymlinkedCredentials(t *testing.T) {
 		t.Skip("symlinks unsupported:", err)
 	}
 	out = mcpTestRun(t, "mcp", "list")
-	if !strings.Contains(out, "atlassian  oauth  unknown\n") {
+	if !strings.Contains(out, "atlassian  oauth  unknown (credentials file is a symlink)\n") {
 		t.Fatalf("symlink: got:\n%s", out)
 	}
 }

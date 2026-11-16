@@ -117,12 +117,12 @@ func mcpOAuthStatus(unavailable, credsPath string, credsErr error, name string) 
 		return "unavailable"
 	}
 	if credsErr != nil {
-		return "unknown"
+		return "unknown (cannot locate credentials file)"
 	}
 	st := mcp.ReadLoginStatus(credsPath, name)
 	switch {
 	case st.Unknown != "":
-		return "unknown"
+		return "unknown (" + st.Unknown + ")"
 	case !st.LoggedIn:
 		return "not logged in"
 	case st.Expires.IsZero():
