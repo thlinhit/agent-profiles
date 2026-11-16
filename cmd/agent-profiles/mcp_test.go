@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thlinhit/agent-profiles/internal/config"
 	"github.com/thlinhit/agent-profiles/internal/mcp"
@@ -247,8 +249,8 @@ func TestUpdateAddsMCPServersToClaudeOnly(t *testing.T) {
 }
 
 func TestMCPUsageAndHelp(t *testing.T) {
-	want := "usage: ap mcp sync|add-server|remove-server\nRun 'ap help mcp' for details."
-	for _, args := range [][]string{{"mcp"}, {"mcp", "list"}} {
+	want := "usage: ap mcp sync|list|add-server|remove-server|login\nRun 'ap help mcp' for details."
+	for _, args := range [][]string{{"mcp"}, {"mcp", "nope"}} {
 		var out bytes.Buffer
 		err := run(args, &out, &out)
 		if err == nil || err.Error() != want {
@@ -256,7 +258,7 @@ func TestMCPUsageAndHelp(t *testing.T) {
 		}
 	}
 	top := mcpTestRun(t, "help")
-	for _, row := range []string{"mcp sync", "mcp add-server <name>", "mcp remove-server <name>"} {
+	for _, row := range []string{"mcp sync", "mcp list", "mcp add-server <name>", "mcp remove-server <name>", "mcp login <name>"} {
 		if !strings.Contains(top, row) {
 			t.Fatalf("top help has no %q row: %s", row, top)
 		}
@@ -472,5 +474,287 @@ func TestMCPAddServerReferenceValuesDoNotWarn(t *testing.T) {
 	}
 	if pool.Servers["api"].Headers["Authorization"] != "Bearer ${TOKEN}" || pool.Servers["docs"].Env["DOCS_TOKEN"] != "${DOCS_TOKEN}" {
 		t.Fatalf("references were not saved unchanged: %+v %+v", pool.Servers["api"], pool.Servers["docs"])
+	}
+}
+
+// mcpTestCreds writes mcporter's credentials file under the test XDG_DATA_HOME. content is raw JSON.
+func mcpTestCreds(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "mcporter", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// mcpTestAtlassianCreds is a credentials file with a fake token for atlassian expiring at expiresAt.
+func mcpTestAtlassianCreds(expiresAt int64) string {
+	return `{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token","expires_at":` + strconv.FormatInt(expiresAt, 10) + `}}}}`
+}
+
+// mcpTestRow returns the fields of the list row for name, or nil.
+func mcpTestRow(out, name string) []string {
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 && f[0] == name {
+			return f
+		}
+	}
+	return nil
+}
+
+func TestMCPListS3NotLoggedInWithHint(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	out := mcpTestRun(t, "mcp", "list")
+	if !strings.Contains(out, "atlassian  oauth  not logged in\n") {
+		t.Fatalf("missing S3 row:\n%s", out)
+	}
+	if !strings.HasSuffix(out, "run 'ap mcp login atlassian'\n") {
+		t.Fatalf("missing login hint:\n%s", out)
+	}
+}
+
+func TestMCPListS18UnavailableNoHint(t *testing.T) {
+	const reason = "mcporter not found (needs mcporter >= 0.17.0 and Node >= 24)"
+	mcpTestEnv(t, reason)
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	out := mcpTestRun(t, "mcp", "list")
+	if !strings.Contains(out, "atlassian  oauth  unavailable\n") || strings.Contains(out, "ap mcp login") {
+		t.Fatalf("got:\n%s", out)
+	}
+}
+
+func TestMCPListLoggedInWithExpiry(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	const expiresAt = 1796200000
+	mcpTestCreds(t, mcpTestAtlassianCreds(expiresAt))
+	out := mcpTestRun(t, "mcp", "list")
+	want := "logged in (expires " + time.Unix(expiresAt, 0).Local().Format("2006-01-02 15:04") + ")"
+	if !strings.Contains(out, "atlassian  oauth  "+want+"\n") || strings.Contains(out, "ap mcp login") {
+		t.Fatalf("got:\n%s", out)
+	}
+	if strings.Contains(out, "fake-token") {
+		t.Fatal("list printed a token value")
+	}
+}
+
+func TestMCPListLoggedInWithoutExpiry(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	mcpTestCreds(t, `{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token"}}}}`)
+	if out := mcpTestRun(t, "mcp", "list"); !strings.Contains(out, "atlassian  oauth  logged in\n") {
+		t.Fatalf("got:\n%s", out)
+	}
+}
+
+func TestMCPListNonPositiveExpiresAtShowsLoggedIn(t *testing.T) {
+	for _, v := range []string{"0", "-5"} {
+		mcpTestEnv(t, "")
+		mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+		mcpTestCreds(t, `{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token","expires_at":`+v+`}}}}`)
+		if out := mcpTestRun(t, "mcp", "list"); !strings.Contains(out, "atlassian  oauth  logged in\n") {
+			t.Fatalf("expires_at %s: got:\n%s", v, out)
+		}
+	}
+}
+
+func TestMCPListDirectRowAndSortedNames(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"docs": mcpTestDocs, "atlassian": mcpTestAtlassian})
+	out := mcpTestRun(t, "mcp", "list")
+	if got := mcpTestRow(out, "docs"); !reflect.DeepEqual(got, []string{"docs", "direct"}) {
+		t.Fatalf("direct row = %q, want [docs direct]:\n%s", got, out)
+	}
+	if got := mcpTestRow(out, "atlassian"); !reflect.DeepEqual(got, []string{"atlassian", "oauth", "not", "logged", "in"}) {
+		t.Fatalf("oauth row = %q:\n%s", got, out)
+	}
+	if strings.Index(out, "atlassian") > strings.Index(out, "docs") {
+		t.Fatalf("rows not sorted:\n%s", out)
+	}
+}
+
+func TestMCPListUnknownForMalformedAndSymlinkedCredentials(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	mcpTestCreds(t, `{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token",`)
+	out := mcpTestRun(t, "mcp", "list")
+	if !strings.Contains(out, "atlassian  oauth  unknown\n") || strings.Contains(out, "fake-token") {
+		t.Fatalf("malformed: got:\n%s", out)
+	}
+
+	creds := mcpTestCreds(t, mcpTestAtlassianCreds(1796200000))
+	target := filepath.Join(t.TempDir(), "real.json")
+	if err := os.Rename(creds, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, creds); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
+	out = mcpTestRun(t, "mcp", "list")
+	if !strings.Contains(out, "atlassian  oauth  unknown\n") {
+		t.Fatalf("symlink: got:\n%s", out)
+	}
+}
+
+func TestMCPListEmptyPoolAndUsage(t *testing.T) {
+	mcpTestEnv(t, "")
+	if out := mcpTestRun(t, "mcp", "list"); out != "no servers in the MCP pool\n" {
+		t.Fatalf("got %q", out)
+	}
+	var out bytes.Buffer
+	err := run([]string{"mcp", "list", "extra"}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "usage: ap mcp list") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// mcpTestPoolPath returns the pool path that mcpTestEnv installed.
+func mcpTestPoolPath(t *testing.T) string {
+	t.Helper()
+	p, err := mcpPoolPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// mcpTestFakeMcporter puts a fake mcporter first on PATH. It records its args and MCPORTER_CONFIG
+// (and the config's content) under rec, and on "auth" writes a fake-token credentials file at creds.
+func mcpTestFakeMcporter(t *testing.T, creds string, expiresAt int64) (rec string) {
+	t.Helper()
+	dir := t.TempDir()
+	rec = t.TempDir()
+	script := `#!/bin/sh
+printf '%s\n' "$@" > '` + rec + `/args'
+printf '%s' "$MCPORTER_CONFIG" > '` + rec + `/config_path'
+cat "$MCPORTER_CONFIG" > '` + rec + `/config_content'
+mkdir -p '` + filepath.Dir(creds) + `'
+printf '%s' '{"version":1,"entries":{"k":{"serverName":"atlassian","tokens":{"access_token":"fake-token","expires_at":` + strconv.FormatInt(expiresAt, 10) + `}}}}' > '` + creds + `'
+`
+	if err := os.WriteFile(filepath.Join(dir, "mcporter"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return rec
+}
+
+func TestMCPLoginS5RunsMcporterAuthThenListShowsLoggedIn(t *testing.T) {
+	_, mcporterPath := mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	creds := filepath.Join(os.Getenv("XDG_DATA_HOME"), "mcporter", "credentials.json")
+	const expiresAt = 1796200000
+	rec := mcpTestFakeMcporter(t, creds, expiresAt)
+	if _, err := os.Stat(mcporterPath); !os.IsNotExist(err) {
+		t.Fatal("ap's mcporter config exists before login")
+	}
+
+	mcpTestRun(t, "mcp", "login", "atlassian")
+
+	args, err := os.ReadFile(filepath.Join(rec, "args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "auth\natlassian\n" {
+		t.Fatalf("mcporter args = %q, want auth atlassian", args)
+	}
+	cfgPath, err := os.ReadFile(filepath.Join(rec, "config_path"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cfgPath) != mcporterPath {
+		t.Fatalf("MCPORTER_CONFIG = %q, want %q", cfgPath, mcporterPath)
+	}
+	cfg, err := os.ReadFile(filepath.Join(rec, "config_content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), `"atlassian"`) || !strings.Contains(string(cfg), `"keep-alive"`) {
+		t.Fatalf("config not regenerated before the call:\n%s", cfg)
+	}
+
+	out := mcpTestRun(t, "mcp", "list")
+	want := "logged in (expires " + time.Unix(expiresAt, 0).Local().Format("2006-01-02 15:04") + ")"
+	if !strings.Contains(out, "atlassian  oauth  "+want) {
+		t.Fatalf("after login:\n%s", out)
+	}
+	if strings.Contains(out, "fake-token") {
+		t.Fatal("list printed a token value")
+	}
+}
+
+func TestMCPLoginReturnsRunnerErrorAfterWritingConfig(t *testing.T) {
+	_, mcporterPath := mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	oldAuth := mcporterAuth
+	t.Cleanup(func() { mcporterAuth = oldAuth })
+	var gotName, gotCfg string
+	mcporterAuth = func(name, configPath string) error {
+		gotName, gotCfg = name, configPath
+		if _, err := os.Stat(configPath); err != nil {
+			t.Fatalf("config missing at call time: %v", err)
+		}
+		return errors.New("mcporter exited 1")
+	}
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || err.Error() != "mcporter exited 1" {
+		t.Fatalf("got %v", err)
+	}
+	if gotName != "atlassian" || gotCfg != mcporterPath {
+		t.Fatalf("runner got (%q, %q)", gotName, gotCfg)
+	}
+}
+
+func TestMCPLoginRefusesDirectUnknownAndUsage(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"docs": mcpTestDocs, "atlassian": mcpTestAtlassian})
+	oldAuth := mcporterAuth
+	t.Cleanup(func() { mcporterAuth = oldAuth })
+	mcporterAuth = func(string, string) error { t.Fatal("mcporter must not run"); return nil }
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"mcp", "login", "docs"}, "docs is not an OAuth server"},
+		{[]string{"mcp", "login", "nope"}, `MCP pool has no server "nope"`},
+		{[]string{"mcp", "login", "-x"}, "usage: ap mcp login <name>"},
+		{[]string{"mcp", "login", "a", "b"}, "usage: ap mcp login <name>"},
+		{[]string{"mcp", "login"}, "usage: ap mcp login <name>"},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		err := run(c.args, &out, &out)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%v: got %v, want %q", c.args, err, c.want)
+		}
+	}
+}
+
+func TestMCPLoginUnavailableRefusesBeforeWritingConfig(t *testing.T) {
+	const reason = "mcporter not found (needs mcporter >= 0.17.0 and Node >= 24)"
+	_, mcporterPath := mcpTestEnv(t, reason)
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	oldAuth := mcporterAuth
+	t.Cleanup(func() { mcporterAuth = oldAuth })
+	mcporterAuth = func(string, string) error { t.Fatal("mcporter must not run"); return nil }
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || err.Error() != reason {
+		t.Fatalf("got %v, want %q", err, reason)
+	}
+	if _, err := os.Stat(mcporterPath); !os.IsNotExist(err) {
+		t.Fatal("config written although mcporter is unavailable")
+	}
+}
+
+func TestMCPListAndLoginHelpEntries(t *testing.T) {
+	for _, sub := range []string{"list", "login"} {
+		if mcpSubcommand(sub) == nil {
+			t.Fatalf("no help entry for mcp %s", sub)
+		}
 	}
 }

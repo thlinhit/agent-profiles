@@ -38,14 +38,14 @@ func buildCommandRegistry() []command {
 		{name: "trust", group: "Per-directory", synopsis: "trust", summary: "Trust the current Dotfile", usage: "trust", examples: []string{"ap trust"}, note: "Trust is bound to the file's exact bytes; re-run after any edit. The shell hook applies it on the next prompt in bash or the next directory change in zsh; cd . applies it now in either shell.", run: func(s profile.Store, a []string, o, d io.Writer) error { return runTrust(a) }},
 		{name: "untrust", group: "Per-directory", synopsis: "untrust", summary: "Revoke trust for the current Dotfile", usage: "untrust", examples: []string{"ap untrust"}, note: "Revokes Trust; it does not deactivate profiles already exported in this shell. Use 'ap off <agent>'.", run: func(s profile.Store, a []string, o, d io.Writer) error { return runTrust(a) }},
 		{name: "skills", group: "Skills", synopsis: "skills ls|add|rm|select", summary: "Manage Profile Skills; manage pools with 'skills pool'", usage: "skills <ls|add|rm|select|pool>", examples: []string{"ap skills ls claude work", "ap skills pool ls"}, run: func(s profile.Store, a []string, o, d io.Writer) error { return runSkills(s, a, o) }},
-		{name: "mcp", group: "MCP", synopsis: "mcp sync|add-server|remove-server", summary: "Sync and edit the MCP pool", usage: "mcp sync|add-server|remove-server", examples: []string{"ap mcp sync", "ap mcp add-server atlassian --url https://mcp.atlassian.com/v1/mcp --auth oauth", "ap mcp remove-server atlassian"}, run: func(s profile.Store, a []string, o, d io.Writer) error { return runMCP(s, a, o) }},
+		{name: "mcp", group: "MCP", synopsis: "mcp sync|list|add-server|remove-server|login", summary: "Sync and edit the MCP pool", usage: "mcp sync|list|add-server|remove-server|login", examples: []string{"ap mcp sync", "ap mcp list", "ap mcp login atlassian", "ap mcp add-server atlassian --url https://mcp.atlassian.com/v1/mcp --auth oauth", "ap mcp remove-server atlassian"}, run: func(s profile.Store, a []string, o, d io.Writer) error { return runMCP(s, a, o) }},
 		{name: "init", group: "Setup", synopsis: "init <zsh|bash>", summary: "Print shell setup", usage: "init zsh|bash", arguments: []string{"<zsh|bash>\tShell to configure"}, examples: []string{"eval \"$(agent-profiles init zsh)\""}, run: func(s profile.Store, a []string, o, d io.Writer) error { return runInit(a, o) }},
 		{name: "auto", group: "Hidden", synopsis: "auto", summary: "Print exports for trusted Dotfile selections in this directory", usage: "auto", note: "Called by the shell hook, not by users.", hidden: true, run: func(s profile.Store, a []string, o, d io.Writer) error { return runAuto(a, o, d) }},
 	}
 }
 
 func commandUsage(name string) string {
-	usage := map[string]string{"create": "create <agent> <name> [--init | --from <profile>] [--base-url <url>] [--auth-token-stdin] [--global-instructions on|off]", "list": "list [agent] [--json]", "mcp": "mcp sync|add-server|remove-server", "update": "update <agent> <name> | update <agent> --all", "delete": "delete <agent> <name> [--yes]", "settings": "settings ls|get|set [...]", "use": "use <agent> <name>", "off": "off <agent>", "current": "current [--json]", "exec": "exec <agent> <name> [-- <command> [args...]]", "local": "local <agent> <name>", "trust": "trust", "untrust": "untrust", "init": "init zsh|bash", "auto": "auto"}[name]
+	usage := map[string]string{"create": "create <agent> <name> [--init | --from <profile>] [--base-url <url>] [--auth-token-stdin] [--global-instructions on|off]", "list": "list [agent] [--json]", "mcp": "mcp sync|list|add-server|remove-server|login", "update": "update <agent> <name> | update <agent> --all", "delete": "delete <agent> <name> [--yes]", "settings": "settings ls|get|set [...]", "use": "use <agent> <name>", "off": "off <agent>", "current": "current [--json]", "exec": "exec <agent> <name> [-- <command> [args...]]", "local": "local <agent> <name>", "trust": "trust", "untrust": "untrust", "init": "init zsh|bash", "auto": "auto"}[name]
 	if usage == "" {
 		usage = name
 	}
@@ -87,7 +87,7 @@ func printTopHelp(out io.Writer) error {
 		for _, c := range commandRegistry {
 			if c.group == group && !c.hidden {
 				if c.name == "mcp" {
-					for _, row := range []struct{ synopsis, summary string }{{"mcp sync", "Sync the MCP pool into Profiles"}, {"mcp add-server <name>", "Add a Pool server (--url or -- <cmd>)"}, {"mcp remove-server <name>", "Remove a Pool server"}} {
+					for _, row := range []struct{ synopsis, summary string }{{"mcp sync", "Sync the MCP pool into Profiles"}, {"mcp list", "List Pool servers and login status"}, {"mcp add-server <name>", "Add a Pool server (--url or -- <cmd>)"}, {"mcp remove-server <name>", "Remove a Pool server"}, {"mcp login <name>", "Log in an OAuth Pool server"}} {
 						if _, err := fmt.Fprintf(w, "  %s\t%s\n", row.synopsis, row.summary); err != nil {
 							return err
 						}

@@ -5,9 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/thlinhit/agent-profiles/internal/agent"
 	"github.com/thlinhit/agent-profiles/internal/config"
@@ -19,11 +23,14 @@ import (
 var (
 	mcpPoolPath  = config.MCPPoolPath
 	mcpAvailable = mcp.SystemAvailable
+	// mcporterAuth runs "mcporter auth <name>" in the terminal with MCPORTER_CONFIG set to configPath.
+	mcporterAuth = runMcporterAuth
 )
 
 const (
 	mcpAddUsage    = "mcp add-server <name> (--url <url> | -- <cmd> [args...]) [--auth oauth] [--header K=V]... [--env K=V]..."
 	mcpRemoveUsage = "mcp remove-server <name>"
+	mcpLoginUsage  = "mcp login <name>"
 )
 
 // runMCP runs "ap mcp <subcommand>".
@@ -41,8 +48,131 @@ func runMCP(s profile.Store, args []string, out io.Writer) error {
 		return runMCPAddServer(args[2:], out)
 	case "remove-server":
 		return runMCPRemoveServer(args[2:], out)
+	case "list":
+		if len(args) != 2 {
+			return mcpUsageError("mcp list", "mcp list", "")
+		}
+		return runMCPList(out)
+	case "login":
+		return runMCPLogin(args[2:])
 	}
 	return errors.New(commandUsage("mcp"))
+}
+
+// runMCPList prints one row per Pool server: name, kind and, for OAuth servers, login status.
+func runMCPList(out io.Writer) error {
+	path, err := mcpPoolPath()
+	if err != nil {
+		return err
+	}
+	pool, _, err := mcp.Load(path)
+	if err != nil {
+		return err
+	}
+	if len(pool.Servers) == 0 {
+		_, err := fmt.Fprintln(out, "no servers in the MCP pool")
+		return err
+	}
+	names := slices.Sorted(maps.Keys(pool.Servers))
+	var reason, credsPath string
+	var credsErr error
+	for _, name := range names {
+		if pool.Servers[name].Auth == "oauth" {
+			reason = mcpAvailable()
+			credsPath, credsErr = mcp.CredentialsPath()
+			break
+		}
+	}
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	firstLoggedOut := ""
+	for _, name := range names {
+		if pool.Servers[name].Auth != "oauth" {
+			if _, err := fmt.Fprintf(w, "%s\tdirect\n", name); err != nil {
+				return err
+			}
+			continue
+		}
+		status := mcpOAuthStatus(reason, credsPath, credsErr, name)
+		if status == "not logged in" && firstLoggedOut == "" {
+			firstLoggedOut = name
+		}
+		if _, err := fmt.Fprintf(w, "%s\toauth\t%s\n", name, status); err != nil {
+			return err
+		}
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if firstLoggedOut != "" {
+		_, err = fmt.Fprintf(out, "run 'ap mcp login %s'\n", firstLoggedOut)
+		return err
+	}
+	return nil
+}
+
+// mcpOAuthStatus words the Shared login state of one OAuth Pool server.
+// unavailable is the reason mcporter cannot be used, or "" when it can.
+func mcpOAuthStatus(unavailable, credsPath string, credsErr error, name string) string {
+	if unavailable != "" {
+		return "unavailable"
+	}
+	if credsErr != nil {
+		return "unknown"
+	}
+	st := mcp.ReadLoginStatus(credsPath, name)
+	switch {
+	case st.Unknown != "":
+		return "unknown"
+	case !st.LoggedIn:
+		return "not logged in"
+	case st.Expires.IsZero():
+		return "logged in"
+	default:
+		return "logged in (expires " + st.Expires.Local().Format("2006-01-02 15:04") + ")"
+	}
+}
+
+// runMCPLogin runs mcporter's browser login for one OAuth Pool server, so the tokens land in the Shared login.
+// It regenerates ap's mcporter config first, and refuses servers that are not OAuth.
+func runMCPLogin(args []string) error {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return mcpUsageError(mcpLoginUsage, "mcp login", "")
+	}
+	name := args[0]
+	path, err := mcpPoolPath()
+	if err != nil {
+		return err
+	}
+	pool, _, err := mcp.Load(path)
+	if err != nil {
+		return err
+	}
+	server, ok := pool.Servers[name]
+	if !ok {
+		return fmt.Errorf("MCP pool has no server %q", name)
+	}
+	if server.Auth != "oauth" {
+		return fmt.Errorf("%s is not an OAuth server", name)
+	}
+	if reason := mcpAvailable(); reason != "" {
+		return errors.New(reason)
+	}
+	configPath, err := mcp.McporterConfigPath()
+	if err != nil {
+		return err
+	}
+	if _, err := mcp.WriteMcporterConfig(configPath, pool); err != nil {
+		return err
+	}
+	return mcporterAuth(name, configPath)
+}
+
+// runMcporterAuth runs "mcporter auth <name>" with the process's terminal attached.
+func runMcporterAuth(name, configPath string) error {
+	cmd := exec.Command("mcporter", "auth", name)
+	cmd.Env = append(os.Environ(), "MCPORTER_CONFIG="+configPath)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // mcpUsageError builds a usage error in the same shape as commandUsage. reason, if set, comes first.
@@ -290,6 +420,17 @@ func mcpSubcommand(sub string) *command {
 			flags:     []string{"--url <url>\tHTTP server URL", "--auth oauth\tShared login through mcporter (needs --url)", "--header K=V\tHTTP header, repeatable (needs --url)", "--env K=V\tEnvironment variable, repeatable (needs -- <cmd>)"},
 			examples:  []string{"ap mcp add-server atlassian --url https://mcp.atlassian.com/v1/mcp --auth oauth", "ap mcp add-server docs --env LOG=debug -- npx -y docs-mcp"},
 			note:      "Writes the MCP pool only; run 'ap mcp sync' to update Profiles. Values are stored as typed: ${VAR} is never expanded here.",
+		}
+	case "list":
+		return &command{name: "mcp", usage: "mcp list", summary: "List Pool servers and their login status", examples: []string{"ap mcp list"}, note: "OAuth status comes from the Shared login's metadata only; no token is read or printed."}
+	case "login":
+		return &command{
+			name:      "mcp",
+			usage:     mcpLoginUsage,
+			summary:   "Log in an OAuth Pool server (Shared login)",
+			arguments: []string{"<name>\tOAuth Pool server name"},
+			examples:  []string{"ap mcp login atlassian"},
+			note:      "Runs mcporter's browser login in this terminal. The tokens are kept outside every Profile.",
 		}
 	case "remove-server":
 		return &command{
