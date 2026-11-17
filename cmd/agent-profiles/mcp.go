@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"cmp"
 	"errors"
 	"fmt"
@@ -25,7 +26,15 @@ var (
 	mcpAvailable = mcp.SystemAvailable
 	// mcporterAuth runs "mcporter auth <name>" in the terminal with MCPORTER_CONFIG set to configPath.
 	mcporterAuth = runMcporterAuth
+	// mcpDaemon reaches the mcporter daemon for configPath; tests fake it so no real mcporter, ps or kill runs.
+	mcpDaemon = mcp.SystemDaemon
+	// mcpStdin is where the leftover-process question is read from; tests replace it.
+	mcpStdin io.Reader = os.Stdin
 )
+
+// errMcporterDaemonBusy is returned when the daemon is down and leftover processes must be closed by hand.
+var errMcporterDaemonBusy = errors.New("mcporter daemon is down and leftover mcporter processes still hold Pool servers\n" +
+	"Close the sessions that use Pool servers, then run: mcporter daemon start --log")
 
 const (
 	mcpAddUsage    = "mcp add-server <name> (--url <url> | -- <cmd> [args...]) [--auth oauth] [--header K=V]... [--env K=V]..."
@@ -54,7 +63,7 @@ func runMCP(s profile.Store, args []string, out io.Writer) error {
 		}
 		return runMCPList(out)
 	case "login":
-		return runMCPLogin(args[2:])
+		return runMCPLogin(args[2:], out)
 	}
 	return errors.New(commandUsage("mcp"))
 }
@@ -74,12 +83,18 @@ func runMCPList(out io.Writer) error {
 		return err
 	}
 	names := slices.Sorted(maps.Keys(pool.Servers))
-	var reason, credsPath string
+	var reason, credsPath, daemonNote string
 	var credsErr error
 	for _, name := range names {
 		if pool.Servers[name].Auth == "oauth" {
 			reason = mcpAvailable()
 			credsPath, credsErr = mcp.CredentialsPath()
+			if reason == "" {
+				daemonNote, err = mcpDaemonNote()
+				if err != nil {
+					return err
+				}
+			}
 			break
 		}
 	}
@@ -96,7 +111,7 @@ func runMCPList(out io.Writer) error {
 		if status == "not logged in" && firstLoggedOut == "" {
 			firstLoggedOut = name
 		}
-		if _, err := fmt.Fprintf(w, "%s\toauth\t%s\n", name, status); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\toauth\t%s%s\n", name, status, daemonNote); err != nil {
 			return err
 		}
 	}
@@ -108,6 +123,22 @@ func runMCPList(out io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+// mcpDaemonNote words a mcporter daemon that is not running, for the OAuth rows of "ap mcp list".
+// It only reads the daemon status: nothing is started or stopped. It is "" when the daemon runs.
+func mcpDaemonNote() (string, error) {
+	configPath, err := mcp.McporterConfigPath()
+	if err != nil {
+		return "", err
+	}
+	switch mcpDaemon(configPath).State() {
+	case mcp.DaemonRunning:
+		return "", nil
+	case mcp.DaemonUnknown:
+		return " (mcporter daemon status unknown)", nil
+	}
+	return " (mcporter daemon not running)", nil
 }
 
 // mcpOAuthStatus words the Shared login state of one OAuth Pool server.
@@ -134,7 +165,7 @@ func mcpOAuthStatus(unavailable, credsPath string, credsErr error, name string) 
 
 // runMCPLogin runs mcporter's browser login for one OAuth Pool server, so the tokens land in the Shared login.
 // It regenerates ap's mcporter config first, and refuses servers that are not OAuth.
-func runMCPLogin(args []string) error {
+func runMCPLogin(args []string, out io.Writer) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return mcpUsageError(mcpLoginUsage, "mcp login", "")
 	}
@@ -164,7 +195,69 @@ func runMCPLogin(args []string) error {
 	if _, err := mcp.WriteMcporterConfig(configPath, pool); err != nil {
 		return err
 	}
+	if err := ensureMcporterDaemon(mcpDaemon(configPath), stdinIsTerminal(), mcpStdin, out); err != nil {
+		return err
+	}
 	return mcporterAuth(name, configPath)
+}
+
+// ensureMcporterDaemon makes sure the mcporter daemon runs before a login. It starts the daemon when no
+// leftover mcporter process is found. Leftover processes are stopped only after an explicit y, since that
+// ends MCP access in their sessions.
+func ensureMcporterDaemon(d mcp.Daemon, terminal bool, in io.Reader, out io.Writer) error {
+	if d.State() == mcp.DaemonRunning {
+		return nil
+	}
+	procs, err := d.Leftovers()
+	if err != nil {
+		return err
+	}
+	if len(procs) > 0 {
+		if !terminal {
+			return errMcporterDaemonBusy
+		}
+		yes, err := askStopLeftovers(procs, in, out)
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return errMcporterDaemonBusy
+		}
+		for _, p := range procs {
+			if err := d.Signal(p.PID); err != nil {
+				return fmt.Errorf("stop mcporter process %d: %w", p.PID, err)
+			}
+		}
+	}
+	if err := d.Start(); err != nil {
+		return fmt.Errorf("%w\nRun 'mcporter daemon start --foreground --log' to diagnose", err)
+	}
+	return nil
+}
+
+// askStopLeftovers lists the leftover processes and asks once. Only y or yes (any case) returns true.
+func askStopLeftovers(procs []mcp.LeftoverProcess, in io.Reader, out io.Writer) (bool, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "! mcporter daemon is down, and %d old sessions still hold Pool servers:\n", len(procs))
+	for _, p := range procs {
+		fmt.Fprintf(&b, "    %d  started %s  terminal %s", p.PID, p.Started, p.TTY)
+		if len(p.Servers) > 0 {
+			fmt.Fprintf(&b, "  (%s)", strings.Join(p.Servers, ", "))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("  Stopping them ends MCP access in those sessions.\n")
+	b.WriteString("  Stop them and restart the daemon? [y/N] ")
+	if _, err := io.WriteString(out, b.String()); err != nil {
+		return false, err
+	}
+	// EOF, or a read error, before a newline counts as no: nothing is stopped.
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil {
+		return false, nil
+	}
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes", nil
 }
 
 // runMcporterAuth runs "mcporter auth <name>" with the process's terminal attached.

@@ -207,6 +207,10 @@ ap mcp list               # atlassian  oauth  logged in (expires 2026-12-01 09:0
   (needs mcporter >= 0.17.0 and Node >= 24)`. Direct servers still sync, and a
   profile that already has the server keeps it. `ap mcp list` then shows
   `unavailable`.
+- `ap mcp login` checks the mcporter daemon first. It starts a stopped daemon. If
+  leftover `mcporter serve` processes from old sessions still hold Pool servers, it
+  asks once before stopping them; anything but `y` stops nothing. `ap mcp list` shows
+  `(mcporter daemon not running)` on OAuth rows while the daemon is down.
 - Tokens are stored in `$XDG_DATA_HOME/mcporter/credentials.json` (falling back to
   `~/.mcporter/credentials.json`), outside every profile. `ap` writes its mcporter
   config to `$XDG_DATA_HOME/agent-profiles/mcporter.json` (default
