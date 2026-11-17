@@ -209,7 +209,7 @@ ap mcp list               # atlassian  oauth  logged in (expires 2026-12-01 09:0
   `unavailable`.
 - `ap mcp login` checks the mcporter daemon first. It starts a stopped daemon. If
   leftover `mcporter serve` processes from old sessions still hold Pool servers, it
-  asks once before stopping them; anything but `y` stops nothing. `ap mcp list` shows
+  asks once before stopping them; anything but `y` stops nothing. If a crashed daemon left stale daemon metadata behind, `ap` asks once (or, after the `y` above, clears it without another question) by moving `user.json` into a new `user.json.stale-<pid>-*` directory beside it. mcporter removes the leftover socket itself when it starts. `ap mcp list` shows
   `(mcporter daemon not running)` on OAuth rows while the daemon is down.
 - Tokens are stored in `$XDG_DATA_HOME/mcporter/credentials.json` (falling back to
   `~/.mcporter/credentials.json`), outside every profile. `ap` writes its mcporter

@@ -223,14 +223,80 @@ func ensureMcporterDaemon(d mcp.Daemon, terminal bool, in io.Reader, out io.Writ
 		if !yes {
 			return errMcporterDaemonBusy
 		}
+		pids := make([]int, 0, len(procs))
 		for _, p := range procs {
 			if err := d.Signal(p.PID); err != nil {
 				return fmt.Errorf("stop mcporter process %d: %w", p.PID, err)
 			}
+			pids = append(pids, p.PID)
+		}
+		if err := d.WaitExited(pids); err != nil {
+			return err
+		}
+	}
+	// Staleness is read only now, after the leftover handling, never from a snapshot taken before a prompt.
+	stale, isStale, err := d.StaleMetadata()
+	if err != nil {
+		return err
+	}
+	if isStale {
+		if err := recoverStaleMetadata(d, stale, len(procs) > 0, terminal, in, out); err != nil {
+			return err
 		}
 	}
 	if err := d.Start(); err != nil {
 		return fmt.Errorf("%w\nRun 'mcporter daemon start --foreground --log' to diagnose", err)
+	}
+	return nil
+}
+
+// recoverStaleMetadata clears daemon metadata that names a dead pid. Without leftovers it asks once first.
+// With leftovers, the earlier y already agreed. Either way it revalidates after that answer, right before
+// moving anything.
+func recoverStaleMetadata(d mcp.Daemon, stale mcp.StaleDaemon, leftoversStopped, terminal bool, in io.Reader, out io.Writer) error {
+	if !leftoversStopped {
+		if !terminal {
+			return staleMetadataError(stale)
+		}
+		yes, err := askClearStale(stale, in, out)
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return staleMetadataError(stale)
+		}
+	}
+	if err := revalidateStale(d, stale); err != nil {
+		return err
+	}
+	movedTo, err := stale.Clear()
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "! cleared stale mcporter daemon metadata: moved to %s (pid %d)\n", movedTo, stale.PID)
+	return err
+}
+
+// revalidateStale rechecks, just before recovery, that the daemon is still not running, no leftover
+// mcporter process exists, and the metadata still names the same dead pid. Any change clears nothing.
+func revalidateStale(d mcp.Daemon, prev mcp.StaleDaemon) error {
+	changed := errors.New("mcporter daemon state changed while the question was open; nothing was cleared. Run 'ap mcp login' again")
+	if d.State() != mcp.DaemonNotRunning {
+		return changed
+	}
+	procs, err := d.Leftovers()
+	if err != nil {
+		return err
+	}
+	if len(procs) > 0 {
+		return changed
+	}
+	cur, isStale, err := d.StaleMetadata()
+	if err != nil {
+		return err
+	}
+	if !isStale || cur.Path != prev.Path || cur.PID != prev.PID {
+		return changed
 	}
 	return nil
 }
@@ -258,6 +324,30 @@ func askStopLeftovers(procs []mcp.LeftoverProcess, in io.Reader, out io.Writer) 
 	}
 	ans := strings.ToLower(strings.TrimSpace(line))
 	return ans == "y" || ans == "yes", nil
+}
+
+// askClearStale explains a stale mcporter daemon metadata file and asks once. Only y or yes (any case)
+// returns true. EOF or a read error counts as no.
+func askClearStale(s mcp.StaleDaemon, in io.Reader, out io.Writer) (bool, error) {
+	msg := fmt.Sprintf("! mcporter daemon crashed: its metadata still names pid %d, which is not running.\n"+
+		"  No leftover mcporter processes are running, so it is safe to clear.\n"+
+		"  Move the metadata aside and start the daemon? [y/N] ", s.PID)
+	if _, err := io.WriteString(out, msg); err != nil {
+		return false, err
+	}
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil {
+		return false, nil
+	}
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes", nil
+}
+
+// staleMetadataError names the metadata and gives the manual recovery steps.
+func staleMetadataError(s mcp.StaleDaemon) error {
+	return fmt.Errorf("mcporter daemon metadata %s names pid %d, which is not running, so mcporter cannot start a new daemon\n"+
+		"Move %s into a new directory beside it (for example %s.stale-%d-new/), then run: mcporter daemon start --log",
+		s.Path, s.PID, s.Path, s.Path, s.PID)
 }
 
 // runMcporterAuth runs "mcporter auth <name>" with the process's terminal attached.
