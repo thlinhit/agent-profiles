@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,6 +23,7 @@ import (
 func init() {
 	mcpPoolPath = func() (string, error) { return "/nonexistent-ap-test/mcp.json", nil }
 	mcpAvailable = func() string { return "mcporter not found (test default)" }
+	mcpDaemon = func(string) mcp.Daemon { return (&mcpTestDaemonFake{status: mcpTestRunningJSON}).daemon() }
 }
 
 var (
@@ -762,5 +764,224 @@ func TestMCPListAndLoginHelpEntries(t *testing.T) {
 		if mcpSubcommand(sub) == nil {
 			t.Fatalf("no help entry for mcp %s", sub)
 		}
+	}
+}
+
+const mcpTestRunningJSON = `{"pid":60981,"protocolVersion":3,"startedAt":1794871161113,"configPath":"","socketPath":"/x/user.sock","generation":"f0a2","views":0,"servers":[],"idleShutdownBlocked":false}`
+
+const mcpTestPS = `40423 Mon Nov 17 07:06:00 2026 s011 node /Users/x/.bun/bin/mcporter serve --stdio --servers atlassian
+49645 Mon Nov 17 07:13:00 2026 s017 node /Users/x/.bun/bin/mcporter serve --stdio --servers atlassian
+60981 Mon Nov 17 06:50:00 2026 ?? node /Users/x/.bun/lib/node_modules/mcporter/dist/cli.js daemon start
+`
+
+// mcpTestDaemonFake stands in for the mcporter daemon and ps. status is what "daemon status --json" prints.
+// A start sets status to a running object when startOK; startErr fails the start instead.
+// calls records status, start, signal and auth calls in order.
+type mcpTestDaemonFake struct {
+	status   string
+	startOK  bool
+	startErr error
+	ps       string
+	psErr    error
+	calls    []string
+}
+
+func (f *mcpTestDaemonFake) daemon() mcp.Daemon {
+	return mcp.Daemon{
+		Run: func(name string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "start" {
+				f.calls = append(f.calls, "start")
+				if f.startErr != nil {
+					return "", f.startErr
+				}
+				if f.startOK {
+					f.status = mcpTestRunningJSON
+				}
+				return "", nil
+			}
+			f.calls = append(f.calls, "status")
+			return f.status, nil
+		},
+		Processes: func() (string, error) { return f.ps, f.psErr },
+		Signal: func(pid int) error {
+			f.calls = append(f.calls, fmt.Sprintf("signal %d", pid))
+			return nil
+		},
+	}
+}
+
+// mcpTestUseDaemon installs f as the mcporter daemon and records mcporter auth calls in f.calls.
+func mcpTestUseDaemon(t *testing.T, f *mcpTestDaemonFake) {
+	t.Helper()
+	oldDaemon, oldAuth := mcpDaemon, mcporterAuth
+	t.Cleanup(func() { mcpDaemon, mcporterAuth = oldDaemon, oldAuth })
+	mcpDaemon = func(string) mcp.Daemon { return f.daemon() }
+	mcporterAuth = func(string, string) error {
+		f.calls = append(f.calls, "auth")
+		return nil
+	}
+}
+
+// mcpTestAnswer sets the terminal flag and the typed answer for the leftover-process question.
+func mcpTestAnswer(t *testing.T, terminal bool, input string) {
+	t.Helper()
+	oldTerm, oldIn := stdinIsTerminal, mcpStdin
+	t.Cleanup(func() { stdinIsTerminal, mcpStdin = oldTerm, oldIn })
+	stdinIsTerminal = func() bool { return terminal }
+	mcpStdin = strings.NewReader(input)
+}
+
+func TestMCPLoginDaemonRunningAuthOnly(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	f := &mcpTestDaemonFake{status: mcpTestRunningJSON}
+	mcpTestUseDaemon(t, f)
+	mcpTestRun(t, "mcp", "login", "atlassian")
+	if want := []string{"status", "auth"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestMCPLoginDaemonDownStartsThenAuth(t *testing.T) {
+	for _, status := range []string{"null", "garbage"} {
+		mcpTestEnv(t, "")
+		mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+		f := &mcpTestDaemonFake{status: status, startOK: true}
+		mcpTestUseDaemon(t, f)
+		mcpTestRun(t, "mcp", "login", "atlassian")
+		if want := []string{"status", "start", "status", "auth"}; !reflect.DeepEqual(f.calls, want) {
+			t.Fatalf("status %q: calls = %q, want %q", status, f.calls, want)
+		}
+	}
+}
+
+func TestMCPLoginDaemonDownStopsLeftoversOnYes(t *testing.T) {
+	for _, input := range []string{"y\n", "YES\n"} {
+		mcpTestEnv(t, "")
+		mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+		f := &mcpTestDaemonFake{status: "null", startOK: true, ps: mcpTestPS}
+		mcpTestUseDaemon(t, f)
+		mcpTestAnswer(t, true, input)
+		out := mcpTestRun(t, "mcp", "login", "atlassian")
+		want := []string{"status", "signal 40423", "signal 49645", "start", "status", "auth"}
+		if !reflect.DeepEqual(f.calls, want) {
+			t.Fatalf("answer %q: calls = %q, want %q", input, f.calls, want)
+		}
+		for _, line := range []string{"    40423  started 07:06  terminal s011  (atlassian)\n", "Stop them and restart the daemon? [y/N] "} {
+			if !strings.Contains(out, line) {
+				t.Fatalf("answer %q: missing %q in:\n%s", input, line, out)
+			}
+		}
+	}
+}
+
+func TestMCPLoginDaemonDownLeftoversNotStoppedWithoutYes(t *testing.T) {
+	cases := []struct {
+		name     string
+		terminal bool
+		input    string
+	}{
+		{"n", true, "n\n"},
+		{"empty answer", true, "\n"},
+		{"EOF", true, ""},
+		{"y without newline then EOF", true, "y"},
+		{"not a terminal", false, "y\n"},
+	}
+	for _, c := range cases {
+		mcpTestEnv(t, "")
+		mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+		f := &mcpTestDaemonFake{status: "null", startOK: true, ps: mcpTestPS}
+		mcpTestUseDaemon(t, f)
+		mcpTestAnswer(t, c.terminal, c.input)
+		var out bytes.Buffer
+		err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+		if err == nil || !strings.Contains(err.Error(), "mcporter daemon start --log") {
+			t.Fatalf("%s: got %v, want manual steps", c.name, err)
+		}
+		if want := []string{"status"}; !reflect.DeepEqual(f.calls, want) {
+			t.Fatalf("%s: calls = %q, want %q", c.name, f.calls, want)
+		}
+	}
+}
+
+func TestMCPLoginDaemonStartFailsBeforeAuth(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	f := &mcpTestDaemonFake{status: "null", startErr: errors.New("exit status 1")}
+	mcpTestUseDaemon(t, f)
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "mcporter daemon start --foreground --log") {
+		t.Fatalf("got %v", err)
+	}
+	if want := []string{"status", "start"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestMCPLoginDaemonStillDownAfterStartFailsBeforeAuth(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	f := &mcpTestDaemonFake{status: "null"}
+	mcpTestUseDaemon(t, f)
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "mcporter daemon start --foreground --log") {
+		t.Fatalf("got %v", err)
+	}
+	if want := []string{"status", "start", "status"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestMCPLoginDaemonPSFailureRefusesBeforeAuth(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	f := &mcpTestDaemonFake{status: "null", psErr: errors.New("ps failed")}
+	mcpTestUseDaemon(t, f)
+	var out bytes.Buffer
+	if err := run([]string{"mcp", "login", "atlassian"}, &out, &out); err == nil {
+		t.Fatal("want error")
+	}
+	if want := []string{"status"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestMCPListDaemonDownSuffixOnOAuthRowsOnly(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian, "docs": mcpTestDocs})
+	f := &mcpTestDaemonFake{status: "null", startOK: true, ps: mcpTestPS}
+	mcpTestUseDaemon(t, f)
+	out := mcpTestRun(t, "mcp", "list")
+	if !strings.Contains(out, "atlassian  oauth  not logged in (mcporter daemon not running)\n") {
+		t.Fatalf("missing suffix:\n%s", out)
+	}
+	if !strings.HasSuffix(out, "run 'ap mcp login atlassian'\n") {
+		t.Fatalf("login hint lost:\n%s", out)
+	}
+	if got := mcpTestRow(out, "docs"); !reflect.DeepEqual(got, []string{"docs", "direct"}) {
+		t.Fatalf("direct row = %q:\n%s", got, out)
+	}
+	if want := []string{"status"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("list must only read status, calls = %q", f.calls)
+	}
+}
+
+func TestMCPListDaemonUnknownSuffix(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	mcpTestUseDaemon(t, &mcpTestDaemonFake{status: "garbage"})
+	if out := mcpTestRun(t, "mcp", "list"); !strings.Contains(out, "atlassian  oauth  not logged in (mcporter daemon status unknown)\n") {
+		t.Fatalf("got:\n%s", out)
+	}
+}
+
+func TestMCPListDaemonHealthyNoSuffix(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	mcpTestUseDaemon(t, &mcpTestDaemonFake{status: mcpTestRunningJSON})
+	if out := mcpTestRun(t, "mcp", "list"); !strings.Contains(out, "atlassian  oauth  not logged in\n") || strings.Contains(out, "daemon") {
+		t.Fatalf("got:\n%s", out)
 	}
 }
