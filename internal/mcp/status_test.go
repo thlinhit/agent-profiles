@@ -114,8 +114,23 @@ func TestStatusMalformedIsUnknownWithoutContent(t *testing.T) {
 	}
 }
 
+func TestStatusVersion2LoggedIn(t *testing.T) {
+	path := statusTestCreds(t, `{"version":2,"entries":{"atlassian|abc":{"serverName":"atlassian","tokens":{"access_token":"fake-token","expires_at":1796200000}}}}`)
+	st := ReadLoginStatus(path, "atlassian")
+	if !st.LoggedIn || st.Unknown != "" || st.Expires.Unix() != 1796200000 {
+		t.Fatalf("got %+v, want logged in", st)
+	}
+}
+
+func TestStatusVersion2PendingLoginIsNotLoggedIn(t *testing.T) {
+	path := statusTestCreds(t, `{"version":2,"entries":{"atlassian|abc":{"serverName":"atlassian","state":"s","codeVerifier":"v"}}}`)
+	if st := ReadLoginStatus(path, "atlassian"); st.LoggedIn || st.Unknown != "" {
+		t.Fatalf("got %+v, want not logged in", st)
+	}
+}
+
 func TestStatusUnknownVersionIsUnknown(t *testing.T) {
-	path := statusTestCreds(t, `{"version":2,"entries":{}}`)
+	path := statusTestCreds(t, `{"version":3,"entries":{}}`)
 	if st := ReadLoginStatus(path, "atlassian"); st.Unknown == "" {
 		t.Fatalf("got %+v, want unknown", st)
 	}

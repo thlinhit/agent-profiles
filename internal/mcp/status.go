@@ -51,7 +51,7 @@ type credentialTokens struct {
 }
 
 // ReadLoginStatus reports whether the credentials file at path holds a token for the server name.
-// A missing file means not logged in. Symlinks, non-regular files and files over 16 MiB give Unknown.
+// File versions 1 and 2 are supported. A missing file means not logged in. Symlinks, non-regular files and files over 16 MiB give Unknown.
 // Unknown reasons never include file content.
 func ReadLoginStatus(path, name string) LoginStatus {
 	unknown := func(reason string) LoginStatus { return LoginStatus{Unknown: reason} }
@@ -84,7 +84,7 @@ func ReadLoginStatus(path, name string) LoginStatus {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return unknown("malformed credentials file")
 	}
-	if file.Version == nil || *file.Version != 1 {
+	if file.Version == nil || (*file.Version != 1 && *file.Version != 2) {
 		return unknown("unsupported credentials file version")
 	}
 	var status LoginStatus

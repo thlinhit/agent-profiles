@@ -213,6 +213,17 @@ ap mcp list               # atlassian  oauth  logged in (expires 2026-12-01 09:0
   `~/.local/share/agent-profiles/mcporter.json`).
 - Set `MCPORTER_VAULT_PASSWORD` in your shell for mcporter. `ap` never reads or
   stores it.
+- Point plain `mcporter` at ap's config, so it sees only the Pool and not the
+  servers in `~/.claude.json`, Claude Desktop, Codex or VS Code:
+
+  ```sh
+  # ~/.zshrc or ~/.bashrc
+  export MCPORTER_CONFIG="$HOME/.local/share/agent-profiles/mcporter.json"
+  ```
+
+  mcporter stores a login by server name. If another config defines a server
+  with the same name but a different URL, running plain `mcporter list` can wipe
+  the Shared login. Keep each OAuth server only in the Pool.
 - Claude tools from an OAuth server get a prefixed name, for example
   `mcp__atlassian__atlassian__<tool>`.
 - `ap mcp list` reads only the credential metadata. It never prints a token.
