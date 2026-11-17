@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -783,11 +784,14 @@ type mcpTestDaemonFake struct {
 	startErr error
 	ps       string
 	psErr    error
+	// metaDir, when set, is the daemon metadata dir; alivePID is the one pid that counts as running.
+	metaDir  string
+	alivePID int
 	calls    []string
 }
 
 func (f *mcpTestDaemonFake) daemon() mcp.Daemon {
-	return mcp.Daemon{
+	d := mcp.Daemon{
 		Run: func(name string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "start" {
 				f.calls = append(f.calls, "start")
@@ -805,9 +809,18 @@ func (f *mcpTestDaemonFake) daemon() mcp.Daemon {
 		Processes: func() (string, error) { return f.ps, f.psErr },
 		Signal: func(pid int) error {
 			f.calls = append(f.calls, fmt.Sprintf("signal %d", pid))
+			f.ps = "" // the signalled process is gone
 			return nil
 		},
+		PidRunning: func(pid int) bool { return pid == f.alivePID },
 	}
+	if f.metaDir != "" {
+		d.MetadataPath = func() (string, error) {
+			f.calls = append(f.calls, "meta")
+			return filepath.Join(f.metaDir, "user.json"), nil
+		}
+	}
+	return d
 }
 
 // mcpTestUseDaemon installs f as the mcporter daemon and records mcporter auth calls in f.calls.
@@ -984,4 +997,228 @@ func TestMCPListDaemonHealthyNoSuffix(t *testing.T) {
 	if out := mcpTestRun(t, "mcp", "list"); !strings.Contains(out, "atlassian  oauth  not logged in\n") || strings.Contains(out, "daemon") {
 		t.Fatalf("got:\n%s", out)
 	}
+}
+
+// mcpTestStaleDir writes daemon metadata naming pid 60981 (dead unless alive) and a user.sock under a
+// fresh daemon dir, and returns the dir.
+func mcpTestStaleDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "daemon")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "user.json"), []byte(`{"pid":60981}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "user.sock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func mcpTestExists(t *testing.T, p string) bool {
+	t.Helper()
+	_, err := os.Lstat(p)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+func TestMCPLoginStaleMetadataYesClearsThenStartsAndAuths(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	f := &mcpTestDaemonFake{status: "null", startOK: true, metaDir: dir}
+	mcpTestUseDaemon(t, f)
+	mcpTestAnswer(t, true, "y\n")
+	out := mcpTestRun(t, "mcp", "login", "atlassian")
+	if want := []string{"status", "meta", "status", "meta", "start", "status", "auth"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	for _, line := range []string{"pid 60981, which is not running.", "Move the metadata aside and start the daemon? [y/N] "} {
+		if !strings.Contains(out, line) {
+			t.Fatalf("missing %q in:\n%s", line, out)
+		}
+	}
+	if mcpTestExists(t, filepath.Join(dir, "user.json")) {
+		t.Fatal("metadata still in place")
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+		t.Fatal("socket was removed; ap must leave it to mcporter")
+	}
+	if moved := mcpTestMovedAside(t, dir); !mcpTestExists(t, moved) {
+		t.Fatal("metadata not moved aside")
+	}
+}
+
+func TestMCPLoginStaleMetadataNoEOFOrNoTerminalChangesNothing(t *testing.T) {
+	cases := []struct {
+		name     string
+		terminal bool
+		input    string
+	}{
+		{"n", true, "n\n"},
+		{"EOF", true, ""},
+		{"not a terminal", false, "y\n"},
+	}
+	for _, c := range cases {
+		mcpTestEnv(t, "")
+		mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+		dir := mcpTestStaleDir(t)
+		f := &mcpTestDaemonFake{status: "null", startOK: true, metaDir: dir}
+		mcpTestUseDaemon(t, f)
+		mcpTestAnswer(t, c.terminal, c.input)
+		var out bytes.Buffer
+		err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+		meta := filepath.Join(dir, "user.json")
+		if err == nil || !strings.Contains(err.Error(), meta) || !strings.Contains(err.Error(), "mcporter daemon start --log") {
+			t.Fatalf("%s: got %v, want error naming %s and manual steps", c.name, err, meta)
+		}
+		if want := []string{"status", "meta"}; !reflect.DeepEqual(f.calls, want) {
+			t.Fatalf("%s: calls = %q, want %q", c.name, f.calls, want)
+		}
+		if !mcpTestExists(t, meta) || !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+			t.Fatalf("%s: metadata or socket was changed", c.name)
+		}
+	}
+}
+
+func TestMCPLoginStaleMetadataWithLeftoversYesClearsOnce(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	f := &mcpTestDaemonFake{status: "null", startOK: true, ps: mcpTestPS, metaDir: dir}
+	mcpTestUseDaemon(t, f)
+	mcpTestAnswer(t, true, "y\n")
+	out := mcpTestRun(t, "mcp", "login", "atlassian")
+	want := []string{"status", "signal 40423", "signal 49645", "meta", "status", "meta", "start", "status", "auth"}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	if n := strings.Count(out, "[y/N] "); n != 1 {
+		t.Fatalf("prompts = %d, want 1:\n%s", n, out)
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+		t.Fatal("socket was removed; ap must leave it to mcporter")
+	}
+	if !strings.Contains(out, "! cleared stale mcporter daemon metadata") {
+		t.Fatalf("missing clear line in:\n%s", out)
+	}
+	if mcpTestExists(t, filepath.Join(dir, "user.json")) || !mcpTestExists(t, mcpTestMovedAside(t, dir)) {
+		t.Fatal("metadata not moved aside")
+	}
+}
+
+func TestMCPLoginLiveMetadataPidIsNotCleared(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	f := &mcpTestDaemonFake{status: "null", startOK: true, metaDir: dir, alivePID: 60981}
+	mcpTestUseDaemon(t, f)
+	mcpTestAnswer(t, true, "")
+	mcpTestRun(t, "mcp", "login", "atlassian")
+	if want := []string{"status", "meta", "start", "status", "auth"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.json")) || !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+		t.Fatal("live metadata was touched")
+	}
+}
+
+func TestMCPLoginRunningDaemonNeverReadsMetadata(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	f := &mcpTestDaemonFake{status: mcpTestRunningJSON, metaDir: dir}
+	mcpTestUseDaemon(t, f)
+	mcpTestRun(t, "mcp", "login", "atlassian")
+	if want := []string{"status", "auth"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.json")) {
+		t.Fatal("metadata touched while daemon runs")
+	}
+}
+
+// onFirstRead runs do once, on the first read, then reads from r. It stands in for another login
+// changing the daemon while the question is open.
+type onFirstRead struct {
+	do   func()
+	r    io.Reader
+	done bool
+}
+
+func (o *onFirstRead) Read(p []byte) (int, error) {
+	if !o.done {
+		o.done = true
+		o.do()
+	}
+	return o.r.Read(p)
+}
+
+func TestMCPLoginLeftoverStillRunningFailsBeforeClearOrStart(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	// Signal succeeds, but pid 40423 keeps running.
+	f := &mcpTestDaemonFake{status: "null", startOK: true, ps: mcpTestPS, metaDir: dir, alivePID: 40423}
+	mcpTestUseDaemon(t, f)
+	mcpTestAnswer(t, true, "y\n")
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "40423") || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("got %v, want error naming pid 40423", err)
+	}
+	if want := []string{"status", "signal 40423", "signal 49645"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.json")) || !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+		t.Fatal("metadata or socket changed")
+	}
+}
+
+func TestMCPLoginStaleRevalidatedAfterPromptRefusesLiveDaemon(t *testing.T) {
+	mcpTestEnv(t, "")
+	mcpTestPool(t, mcpTestPoolPath(t), map[string]mcp.Server{"atlassian": mcpTestAtlassian})
+	dir := mcpTestStaleDir(t)
+	f := &mcpTestDaemonFake{status: "null", startOK: true, metaDir: dir}
+	mcpTestUseDaemon(t, f)
+	mcpTestAnswer(t, true, "")
+	meta := filepath.Join(dir, "user.json")
+	// While the question is open, another login starts a daemon: metadata now names live pid 99999.
+	mcpStdin = &onFirstRead{
+		do: func() {
+			if err := os.WriteFile(meta, []byte(`{"pid":99999}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.alivePID = 99999
+		},
+		r: strings.NewReader("y\n"),
+	}
+	var out bytes.Buffer
+	err := run([]string{"mcp", "login", "atlassian"}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "state changed") || !strings.Contains(err.Error(), "ap mcp login") {
+		t.Fatalf("got %v, want state-changed error", err)
+	}
+	if want := []string{"status", "meta", "status", "meta"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %q, want %q", f.calls, want)
+	}
+	b, err := os.ReadFile(meta)
+	if err != nil || string(b) != `{"pid":99999}` {
+		t.Fatalf("live metadata changed: %q, %v", b, err)
+	}
+	if !mcpTestExists(t, filepath.Join(dir, "user.sock")) {
+		t.Fatal("socket removed")
+	}
+}
+
+// mcpTestMovedAside returns the user.json that the stale daemon metadata was moved to. It must be exactly one.
+func mcpTestMovedAside(t *testing.T, dir string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, "user.json.stale-60981-*", "user.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("moved-aside matches = %v, %v; want one", matches, err)
+	}
+	return matches[0]
 }
